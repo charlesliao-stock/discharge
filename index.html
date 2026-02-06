@@ -3,13 +3,12 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>病房出院即時看板 (V10-通知與修復版)</title>
+    <title>病房出院即時看板 (V11-常駐通知版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
         #bed-grid { user-select: none; -webkit-user-select: none; }
         
-        /* 統一邊框 2px 防抖動 */
         .status-normal { background-color: #ffffff; color: #374151; border: 2px solid #e5e7eb; }
         .status-pre-discharge { background-color: #fff1f2; color: #9d174d; border: 2px solid #be185d; }
         .status-ready { background-color: #f0fdf4; color: #166534; border: 2px solid #15803d; }
@@ -35,12 +34,20 @@
             from { transform: translateX(100%); opacity: 0; }
             to { transform: translateX(0); opacity: 1; }
         }
-        .toast-animate { animation: slideIn 0.3s ease-out forwards; }
+        @keyframes fadeOut {
+            to { transform: translateX(100%); opacity: 0; }
+        }
+        .toast-animate-in { animation: slideIn 0.3s ease-out forwards; }
+        .toast-animate-out { animation: fadeOut 0.3s ease-in forwards; }
+        
+        /* 讓通知卡片看起來是可以點擊的 */
+        .toast-card { cursor: pointer; transition: transform 0.1s; }
+        .toast-card:active { transform: scale(0.98); }
     </style>
 </head>
 <body class="bg-gray-100 p-6 select-none">
 
-    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 pointer-events-none"></div>
+    <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
 
     <div class="max-w-6xl mx-auto">
         <div class="mb-6 flex flex-col lg:flex-row justify-between items-center bg-white p-4 rounded shadow gap-4">
@@ -117,79 +124,116 @@
         let sortableInstance = null;
         let localBedList = [];
         let isDragging = false; 
-        
-        // 狀態追蹤 (用於比較變化並發出通知)
         let lastBedStates = {}; 
         let isFirstLoad = true;
+        
+        // 標題閃爍相關變數
+        let flashInterval = null;
+        const originalTitle = document.title;
+        let isFlashing = false;
 
         const bedsRef = ref(db, 'beds');
         onValue(bedsRef, (snapshot) => {
             if (isDragging) return;
             const data = snapshot.val() || {};
             
-            // 轉換資料並修正可能出現的 undefined (修復雙擊問題)
             localBedList = Object.keys(data).map(key => ({
                 id: key,
                 ...data[key],
-                // 強制轉型：確保即使資料庫欄位缺失，也會預設為 false
                 preDischarge: !!data[key].preDischarge,
                 readyForBilling: !!data[key].readyForBilling,
                 billed: !!data[key].billed,
-                // 處理 index
                 index: data[key].index !== undefined ? Number(data[key].index) : 9999
             })).sort((a, b) => {
                 if (a.index !== b.index) return a.index - b.index;
                 return a.id.localeCompare(b.id, undefined, { numeric: true });
             });
             
-            checkAndNotify(localBedList); // 檢查是否需要通知
+            checkAndNotify(localBedList); 
             renderGrid();
         });
 
-        // 檢查狀態變化並發送通知
+        // 監聽網頁可見度變化 (當使用者切換回來時停止閃爍)
+        document.addEventListener('visibilitychange', () => {
+            if (!document.hidden) {
+                stopTitleFlash();
+            }
+        });
+
         function checkAndNotify(beds) {
             if (isFirstLoad) {
-                // 第一次載入時只記錄狀態，不發通知 (避免一打開網頁就狂跳通知)
                 beds.forEach(bed => { lastBedStates[bed.id] = bed.readyForBilling; });
                 isFirstLoad = false;
                 return;
             }
 
+            let hasNewNotification = false;
+
             beds.forEach(bed => {
-                // 邏輯：如果現在是綠色 (true)，但上次記錄是 false (或無記錄)，則發出通知
                 if (bed.readyForBilling === true && lastBedStates[bed.id] !== true) {
                     showToast(bed.id);
-                    // 播放提示音 (選用)
-                    // playSound(); 
+                    hasNewNotification = true;
                 }
-                // 更新記錄
                 lastBedStates[bed.id] = bed.readyForBilling;
             });
+
+            // 如果有新通知，且目前網頁不是使用者的焦點視窗，就開始閃爍標題
+            if (hasNewNotification && document.hidden) {
+                startTitleFlash();
+            }
         }
 
-        // 顯示右下角通知
+        // 開始標題閃爍
+        function startTitleFlash() {
+            if (isFlashing) return;
+            isFlashing = true;
+            let showAlert = true;
+            
+            flashInterval = setInterval(() => {
+                document.title = showAlert ? "🔔【有新通知】" : originalTitle;
+                showAlert = !showAlert;
+            }, 1000); // 每 1 秒切換一次
+        }
+
+        // 停止標題閃爍
+        function stopTitleFlash() {
+            clearInterval(flashInterval);
+            document.title = originalTitle;
+            isFlashing = false;
+        }
+
+        // 顯示常駐通知 (點擊才消失)
         function showToast(bedId) {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
             
-            toast.className = "toast-animate bg-green-600 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center gap-3 border-2 border-green-400";
+            // 加入 toast-card class
+            toast.className = "toast-card toast-animate-in bg-green-600 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center justify-between gap-4 border-2 border-green-400 min-w-[250px]";
             toast.innerHTML = `
-                <span class="text-2xl">🔔</span>
-                <div>
-                    <div class="text-sm font-light opacity-90">護理站通知</div>
-                    <div class="text-xl font-bold">${bedId} 可辦出院</div>
+                <div class="flex items-center gap-3">
+                    <span class="text-2xl">🔔</span>
+                    <div>
+                        <div class="text-sm font-light opacity-90">護理站通知</div>
+                        <div class="text-xl font-bold">${bedId} 可辦出院</div>
+                    </div>
                 </div>
+                <div class="text-green-200 text-xl font-bold">✕</div>
             `;
+            
+            // 修改點擊事件：點擊後執行消失動畫，然後移除
+            toast.onclick = () => {
+                toast.classList.remove('toast-animate-in');
+                toast.classList.add('toast-animate-out');
+                
+                // 動畫結束後從 DOM 移除
+                setTimeout(() => {
+                    toast.remove();
+                }, 300);
+            };
             
             container.appendChild(toast);
             
-            // 3.5秒後自動消失
-            setTimeout(() => {
-                toast.style.opacity = '0';
-                toast.style.transform = 'translateY(100%)';
-                toast.style.transition = 'all 0.3s ease';
-                setTimeout(() => toast.remove(), 300);
-            }, 3500);
+            // 這裡不再有自動移除的 setTimeout
         }
 
         function renderGrid() {
@@ -280,7 +324,6 @@
             const updates = {};
             
             if (currentRole === 'control') {
-                // 強制取反，確保就算是 undefined 也會變成 true，修復雙擊問題
                 updates[`/beds/${bed.id}/preDischarge`] = !bed.preDischarge;
             } 
             else if (currentRole === 'nursing') {
@@ -314,7 +357,6 @@
             const id = input.value.trim();
             if (!id) return;
             const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
-            // 寫入預設值
             set(ref(db, 'beds/' + id), { 
                 type: 'bed', preDischarge: false, readyForBilling: false, billed: false, index: maxIndex + 1 
             });
