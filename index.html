@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>病房出院即時看板 (V7-防抖動終極版)</title>
+    <title>病房出院即時看板 (V9-排序穩定修正版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -12,21 +12,26 @@
             -webkit-user-select: none;
         }
 
-        /* 關鍵修正：統一邊框寬度為 2px，防止切換狀態時卡片變大擠壓版面 */
+        /* 狀態樣式定義 (統一 2px 邊框防抖動) */
         .status-normal { 
             background-color: #ffffff; 
             color: #374151; 
-            border: 2px solid #e5e7eb; /* 平常是淺灰框 */
+            border: 2px solid #e5e7eb; 
         }
         .status-pre-discharge { 
-            background-color: #fff1f2; /* 極淡粉紅底 */
+            background-color: #fff1f2; /* 粉紅底 */
             color: #9d174d; 
-            border: 2px solid #be185d; /* 粉紅框 (粗細不變) */
+            border: 2px solid #be185d; 
         }
         .status-ready { 
-            background-color: #f0fdf4; /* 極淡綠底 */
+            background-color: #f0fdf4; /* 綠底 */
             color: #166534; 
-            border: 2px solid #15803d; /* 綠框 (粗細不變) */
+            border: 2px solid #15803d; 
+        }
+        .status-billed {
+            background-color: #fff7ed; /* 橘底 */
+            color: #9a3412;
+            border: 2px solid #ea580c; /* 橘框 */
         }
         
         .bed-card {
@@ -34,50 +39,32 @@
             cursor: pointer;
             touch-action: none;
             -webkit-user-drag: none; 
-            /* 確保內容不會撐開盒子 */
             box-sizing: border-box;
         }
         
         .separator-card {
-            width: 100%; 
-            height: 30px; 
-            margin: 5px 0;
-            display: flex;
-            align-items: center;
-            justify-content: center;
-            cursor: grab;
-            user-select: none;
+            width: 100%; height: 30px; margin: 5px 0;
+            display: flex; align-items: center; justify-content: center;
+            cursor: grab; user-select: none;
         }
 
-        .sortable-ghost { 
-            opacity: 0.2 !important; 
-            background: #e5e7eb !important; 
-            border: 2px dashed #9ca3af !important;
-        }
-        
-        .sortable-drag { 
-            cursor: grabbing; 
-            opacity: 1 !important; 
-            background: #ffffff; 
-            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25); 
-            transform: scale(1.05); 
-            z-index: 9999 !important;
-        }
-        
+        .sortable-ghost { opacity: 0.2 !important; background: #e5e7eb !important; border: 2px dashed #9ca3af !important; }
+        .sortable-drag { cursor: grabbing; opacity: 1 !important; background: #ffffff; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25); transform: scale(1.05); z-index: 9999 !important; }
         .cursor-locked { cursor: default; }
     </style>
 </head>
 <body class="bg-gray-100 p-6 select-none">
 
     <div class="max-w-6xl mx-auto">
-        <div class="mb-6 flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded shadow gap-4">
+        <div class="mb-6 flex flex-col lg:flex-row justify-between items-center bg-white p-4 rounded shadow gap-4">
             <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
                 🏥 出院動態看板 
                 <span id="role-badge" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">控制端</span>
             </h1>
-            <div class="flex gap-2">
-                <button onclick="setRole('control')" id="btn-control" class="px-4 py-2 rounded bg-blue-500 text-white font-bold shadow transition hover:bg-blue-600">我是控制端</button>
-                <button onclick="setRole('nursing')" id="btn-nursing" class="px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition hover:bg-gray-300">我是護理端</button>
+            <div class="flex gap-2 flex-wrap justify-center">
+                <button onclick="setRole('control')" id="btn-control" class="px-4 py-2 rounded bg-blue-500 text-white font-bold shadow transition">控制端</button>
+                <button onclick="setRole('nursing')" id="btn-nursing" class="px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition">護理端</button>
+                <button onclick="setRole('clerk')" id="btn-clerk" class="px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition">書記端</button>
             </div>
         </div>
 
@@ -87,18 +74,19 @@
                     <span class="text-2xl">⚙️</span>
                     <div>
                         <h2 class="font-bold text-gray-800">床號與排版</h2>
-                        <p class="text-xs text-gray-500">輸入床號按 Enter 新增，或插入換行分隔線。</p>
+                        <p class="text-xs text-gray-500">輸入按 Enter 新增，拖曳調整位置。</p>
                     </div>
                 </div>
-                <div class="flex gap-2 w-full md:w-auto flex-wrap">
+                <div class="flex gap-2 w-full md:w-auto flex-wrap items-center">
                     <input type="text" id="new-bed-id" placeholder="輸入床號" 
-                           class="border p-2 rounded w-full md:w-40 text-center focus:ring-2 focus:ring-blue-400 outline-none"
+                           class="border p-2 rounded w-24 text-center focus:ring-2 focus:ring-blue-400 outline-none"
                            onkeydown="if(event.key === 'Enter') addBed()">
                     
-                    <button onclick="addBed()" class="bg-blue-600 text-white px-4 py-2 rounded font-bold hover:bg-blue-700 shadow active:scale-95 transition">新增床號</button>
+                    <button onclick="addBed()" class="bg-blue-600 text-white px-3 py-2 rounded font-bold hover:bg-blue-700 shadow text-sm">新增</button>
+                    <button onclick="addSeparator()" class="bg-gray-500 text-white px-3 py-2 rounded font-bold hover:bg-gray-600 shadow text-sm border-l border-gray-400">⬇️ 換行</button>
                     
-                    <button onclick="addSeparator()" class="bg-gray-500 text-white px-4 py-2 rounded font-bold hover:bg-gray-600 shadow active:scale-95 transition border-l-2 border-gray-400">
-                        ⬇️ 插入換行
+                    <button onclick="clearAllStatuses()" class="ml-4 bg-red-100 text-red-600 border border-red-300 px-3 py-2 rounded font-bold hover:bg-red-200 shadow text-sm transition">
+                        ♻️ 清除所有狀態
                     </button>
                 </div>
             </div>
@@ -107,10 +95,14 @@
         <div id="nursing-panel" class="mb-6 bg-green-50 p-4 rounded-lg border border-green-100 shadow-sm hidden">
             <div class="flex items-center gap-2">
                 <span class="text-2xl">👩‍⚕️</span>
-                <div>
-                    <h2 class="font-bold text-gray-800">護理作業區</h2>
-                    <p class="text-xs text-gray-600">綠色代表可辦理出院。</p>
-                </div>
+                <div><h2 class="font-bold text-gray-800">護理作業區</h2><p class="text-xs text-gray-600">確認出院後標記為 <span class="text-green-700 font-bold">綠色</span>。</p></div>
+            </div>
+        </div>
+
+        <div id="clerk-panel" class="mb-6 bg-orange-50 p-4 rounded-lg border border-orange-100 shadow-sm hidden">
+            <div class="flex items-center gap-2">
+                <span class="text-2xl">📝</span>
+                <div><h2 class="font-bold text-gray-800">書記/批價作業區</h2><p class="text-xs text-gray-600">手續完成後標記為 <span class="text-orange-700 font-bold">橘色 (已辦理)</span>。</p></div>
             </div>
         </div>
 
@@ -145,11 +137,24 @@
         const bedsRef = ref(db, 'beds');
         onValue(bedsRef, (snapshot) => {
             if (isDragging) return;
-
             const data = snapshot.val() || {};
+            
+            // 修正重點：穩定的排序邏輯
             localBedList = Object.keys(data)
                 .map(key => ({id: key, ...data[key]}))
-                .sort((a, b) => (Number(a.index) || 9999) - (Number(b.index) || 9999));
+                .sort((a, b) => {
+                    // 1. 先比較手動排序的 index (如果沒有 index 則視為 9999)
+                    const indexA = a.index !== undefined ? Number(a.index) : 9999;
+                    const indexB = b.index !== undefined ? Number(b.index) : 9999;
+                    
+                    if (indexA !== indexB) {
+                        return indexA - indexB;
+                    }
+                    
+                    // 2. 如果 index 相同 (例如都是 9999)，則依照床號文字進行「自然排序」
+                    // 這樣就算沒有 index，也會乖乖依照 1, 2, 10 的順序排好，不會亂跳
+                    return a.id.localeCompare(b.id, undefined, { numeric: true });
+                });
             
             renderGrid();
         });
@@ -170,40 +175,36 @@
                 if (bed.type === 'separator') {
                     div.className = 'separator-card';
                     if (currentRole === 'control') {
-                        div.innerHTML = '<div class="w-full border-b-2 border-dashed border-gray-300 text-center text-xs text-gray-400 leading-[0.1em] pointer-events-none"><span class="bg-gray-100 px-2">換行分隔線 (雙擊刪除)</span></div>';
+                        div.innerHTML = '<div class="w-full border-b-2 border-dashed border-gray-300 text-center text-xs text-gray-400 leading-[0.1em] pointer-events-none"><span class="bg-gray-100 px-2">換行 (雙擊刪除)</span></div>';
                         div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
-                        div.title = "拖曳可調整換行位置";
                     } else {
                         div.innerHTML = '<div class="w-full h-4"></div>'; 
                         div.classList.add('cursor-default');
                     }
                 } else {
-                    // 基本樣式：w-28 (寬度固定) h-24 (高度固定)
-                    // 這裡不加 border class，改由 getStatusClass 統一加入 2px border
                     let cardClass = `bed-card w-28 h-24 flex flex-col items-center justify-center rounded-lg shadow-sm ${getStatusClass(bed)}`;
-                    
-                    // 只有有狀態時才加陰影，不改變大小
-                    if (bed.preDischarge || bed.readyForBilling) {
+                    if (bed.preDischarge || bed.readyForBilling || bed.billed) {
                         cardClass += " shadow-md"; 
                     }
                     div.className = cardClass;
                     div.innerHTML = `<span class="text-2xl font-bold pointer-events-none">${bed.id}</span>`; 
                     
-                    if(bed.readyForBilling) {
+                    if(bed.billed) {
+                         div.innerHTML += `<span class="text-[10px] font-bold bg-orange-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">已辦出院</span>`;
+                    } else if(bed.readyForBilling) {
                         div.innerHTML += `<span class="text-[10px] font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">可辦出院</span>`;
                     } else if (bed.preDischarge) {
                         div.innerHTML += `<span class="text-[10px] font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">預出院</span>`;
                     }
 
                     div.onclick = (e) => handleBedClick(bed);
-                    if (currentRole === 'control' && !bed.preDischarge && !bed.readyForBilling) {
+                    if (currentRole === 'control' && !bed.preDischarge && !bed.readyForBilling && !bed.billed) {
                          div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
                          div.title = "雙擊刪除 / 拖曳排序";
                     }
                 }
                 grid.appendChild(div);
             });
-
             initSortable();
         }
 
@@ -213,14 +214,7 @@
 
             if (currentRole === 'control') {
                 sortableInstance = new Sortable(grid, {
-                    animation: 150,
-                    forceFallback: true, 
-                    fallbackOnBody: true, 
-                    fallbackClass: "sortable-drag", 
-                    ghostClass: "sortable-ghost",
-                    delay: 50, 
-                    delayOnTouchOnly: true,
-                    multiDrag: false,
+                    animation: 150, forceFallback: true, fallbackOnBody: true, fallbackClass: "sortable-drag", ghostClass: "sortable-ghost", delay: 50, delayOnTouchOnly: true, multiDrag: false,
                     onStart: function() { isDragging = true; },
                     onEnd: function (evt) { isDragging = false; saveNewOrder(); }
                 });
@@ -241,6 +235,7 @@
         }
 
         function getStatusClass(bed) {
+            if (bed.billed) return 'status-billed';
             if (bed.readyForBilling) return 'status-ready';
             if (bed.preDischarge) return 'status-pre-discharge';
             return 'status-normal';
@@ -256,7 +251,27 @@
             } 
             else if (currentRole === 'nursing') {
                 updates[`/beds/${bed.id}/readyForBilling`] = !bed.readyForBilling;
+                if (bed.readyForBilling) updates[`/beds/${bed.id}/billed`] = false; 
             }
+            else if (currentRole === 'clerk') {
+                if (!bed.readyForBilling && !bed.billed) {
+                    alert("護理端尚未確認可辦出院，無法標記！");
+                    return;
+                }
+                updates[`/beds/${bed.id}/billed`] = !bed.billed;
+            }
+            update(ref(db), updates);
+        }
+
+        window.clearAllStatuses = function() {
+            if(!confirm("確定要清除「所有」狀態顏色？")) return;
+            const updates = {};
+            localBedList.forEach(bed => {
+                if (bed.type === 'separator') return;
+                updates[`/beds/${bed.id}/preDischarge`] = false;
+                updates[`/beds/${bed.id}/readyForBilling`] = false;
+                updates[`/beds/${bed.id}/billed`] = false;
+            });
             update(ref(db), updates);
         }
 
@@ -264,58 +279,39 @@
             const input = document.getElementById('new-bed-id');
             const id = input.value.trim();
             if (!id) return;
-            
             const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
-
-            set(ref(db, 'beds/' + id), {
-                type: 'bed',
-                preDischarge: false,
-                readyForBilling: false,
-                index: maxIndex + 1
-            });
-            input.value = ''; 
-            input.focus(); 
+            set(ref(db, 'beds/' + id), { type: 'bed', preDischarge: false, readyForBilling: false, billed: false, index: maxIndex + 1 });
+            input.value = ''; input.focus(); 
         }
 
         window.addSeparator = function() {
             const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
             const sepId = 'SEP_' + Date.now();
-            set(ref(db, 'beds/' + sepId), {
-                type: 'separator', 
-                index: maxIndex + 1
-            });
+            set(ref(db, 'beds/' + sepId), { type: 'separator', index: maxIndex + 1 });
         }
 
         window.deleteBed = function(id) {
             const isSep = id.startsWith('SEP_');
-            const msg = isSep ? '確定要移除此換行分隔線嗎？' : `刪除床號 ${id}？`;
-            if(confirm(msg)) remove(ref(db, 'beds/' + id));
+            if(confirm(isSep ? '移除此換行分隔線？' : `刪除床號 ${id}？`)) remove(ref(db, 'beds/' + id));
         }
 
         window.setRole = function(role) {
             currentRole = role;
-            const btnControl = document.getElementById('btn-control');
-            const btnNursing = document.getElementById('btn-nursing');
-            const roleBadge = document.getElementById('role-badge');
-            
-            if(role === 'control') {
-                btnControl.className = "px-4 py-2 rounded bg-blue-500 text-white font-bold shadow transition";
-                btnNursing.className = "px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition";
-                roleBadge.innerText = "控制端";
-                roleBadge.className = "text-xs px-2 py-1 rounded bg-blue-100 text-blue-800";
-            } else {
-                btnControl.className = "px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition";
-                btnNursing.className = "px-4 py-2 rounded bg-green-500 text-white font-bold shadow transition";
-                roleBadge.innerText = "護理端";
-                roleBadge.className = "text-xs px-2 py-1 rounded bg-green-100 text-green-800";
-            }
-
+            ['control', 'nursing', 'clerk'].forEach(r => {
+                const btn = document.getElementById(`btn-${r}`);
+                if(r === role) {
+                    btn.className = `px-4 py-2 rounded text-white font-bold shadow transition ${r === 'control'?'bg-blue-500': r==='nursing'?'bg-green-500':'bg-orange-500'}`;
+                    document.getElementById('role-badge').innerText = btn.innerText;
+                    document.getElementById('role-badge').className = `text-xs px-2 py-1 rounded ${r === 'control'?'bg-blue-100 text-blue-800': r==='nursing'?'bg-green-100 text-green-800':'bg-orange-100 text-orange-800'}`;
+                } else {
+                    btn.className = "px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition hover:bg-gray-300";
+                }
+            });
             document.getElementById('admin-panel').classList.toggle('hidden', role !== 'control');
             document.getElementById('nursing-panel').classList.toggle('hidden', role !== 'nursing');
-            
+            document.getElementById('clerk-panel').classList.toggle('hidden', role !== 'clerk');
             renderGrid();
         }
-
         setRole('control');
     </script>
 </body>
