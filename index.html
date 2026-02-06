@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>病房出院即時看板 (V13-通知開關版)</title>
+    <title>病房出院即時看板 (V14-延遲原因管理版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -14,9 +14,13 @@
         .status-ready { background-color: #f0fdf4; color: #166534; border: 2px solid #15803d; }
         .status-billed { background-color: #fff7ed; color: #9a3412; border: 2px solid #ea580c; }
         
+        /* 新增：延遲出院 (淡藍) */
+        .status-delayed { background-color: #eff6ff; color: #1e40af; border: 2px solid #3b82f6; }
+        
         .bed-card {
             transition: background-color 0.1s, border-color 0.1s; 
             cursor: pointer; touch-action: none; -webkit-user-drag: none; box-sizing: border-box;
+            position: relative;
         }
         
         .separator-card {
@@ -35,11 +39,25 @@
         .toast-animate-out { animation: fadeOut 0.3s ease-in forwards; }
         .toast-card { cursor: pointer; transition: transform 0.1s; }
         .toast-card:active { transform: scale(0.98); }
+
+        /* Modal 樣式 */
+        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); }
     </style>
 </head>
 <body class="bg-gray-100 p-6 select-none">
 
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2"></div>
+
+    <div id="modal-container" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay">
+        <div class="bg-white rounded-lg shadow-xl w-11/12 max-w-md p-6 transform transition-all scale-100">
+            <h3 id="modal-title" class="text-xl font-bold text-gray-800 mb-4">選單</h3>
+            <div id="modal-content" class="space-y-2 max-h-[60vh] overflow-y-auto p-1">
+                </div>
+            <div class="mt-6 flex justify-end gap-2">
+                <button onclick="closeModal()" class="px-4 py-2 bg-gray-200 text-gray-700 rounded hover:bg-gray-300">關閉</button>
+            </div>
+        </div>
+    </div>
 
     <div class="max-w-6xl mx-auto">
         <div class="mb-6 flex flex-col lg:flex-row justify-between items-center bg-white p-4 rounded shadow gap-4">
@@ -54,7 +72,6 @@
                     <button onclick="setRole('nursing')" id="btn-nursing" class="px-3 py-1.5 rounded text-sm font-bold shadow transition">護理</button>
                     <button onclick="setRole('clerk')" id="btn-clerk" class="px-3 py-1.5 rounded text-sm font-bold shadow transition">書記</button>
                 </div>
-
                 <button onclick="toggleNotify()" id="btn-notify-toggle" class="ml-2 px-3 py-1.5 rounded bg-green-100 text-green-700 border border-green-300 font-bold text-sm hover:bg-green-200 transition flex items-center gap-1">
                     🔔 通知：開啟
                 </button>
@@ -77,7 +94,10 @@
                     
                     <button onclick="addBed()" class="bg-blue-600 text-white px-3 py-2 rounded font-bold hover:bg-blue-700 shadow text-sm">新增</button>
                     <button onclick="addSeparator()" class="bg-gray-500 text-white px-3 py-2 rounded font-bold hover:bg-gray-600 shadow text-sm border-l border-gray-400">⬇️ 換行</button>
-                    <button onclick="clearAllStatuses()" class="ml-4 bg-red-100 text-red-600 border border-red-300 px-3 py-2 rounded font-bold hover:bg-red-200 shadow text-sm transition">♻️ 清除狀態</button>
+                    
+                    <button onclick="openReasonConfig()" class="bg-indigo-100 text-indigo-700 border border-indigo-300 px-3 py-2 rounded font-bold hover:bg-indigo-200 shadow text-sm">📝 編輯原因選單</button>
+                    
+                    <button onclick="clearAllStatuses()" class="ml-auto bg-red-100 text-red-600 border border-red-300 px-3 py-2 rounded font-bold hover:bg-red-200 shadow text-sm transition">♻️ 清除狀態</button>
                 </div>
             </div>
         </div>
@@ -85,7 +105,10 @@
         <div id="nursing-panel" class="mb-6 bg-green-50 p-4 rounded-lg border border-green-100 shadow-sm hidden">
             <div class="flex items-center gap-2">
                 <span class="text-2xl">👩‍⚕️</span>
-                <div><h2 class="font-bold text-gray-800">護理作業區</h2><p class="text-xs text-gray-600">確認出院後標記為 <span class="text-green-700 font-bold">綠色</span>。</p></div>
+                <div>
+                    <h2 class="font-bold text-gray-800">護理作業區</h2>
+                    <p class="text-xs text-gray-600">確認出院後標記為 <span class="text-green-700 font-bold">綠色</span>。 <span class="text-blue-600 font-bold">長按床號</span> 可標記延遲原因。</p>
+                </div>
             </div>
         </div>
 
@@ -103,7 +126,7 @@
 
     <script type="module">
         import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, remove, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+        import { getDatabase, ref, set, onValue, remove, update, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
         const firebaseConfig = {
             apiKey: "AIzaSyDmuMbCIPPZZlxxpYKiruDEdspUDtSWYjM",
@@ -125,13 +148,15 @@
         let isDragging = false; 
         let lastBedStates = {}; 
         let isFirstLoad = true;
-        
-        // 通知控制變數
         let isNotifyEnabled = true;
         let flashInterval = null;
         const originalTitle = document.title;
         let isFlashing = false;
 
+        // 預設原因列表 (如果資料庫是空的)
+        const defaultReasons = ["等待家屬", "等待檢查報告", "帳務問題", "病情變化", "等待救護車", "其他"];
+
+        // 監聽床號資料
         const bedsRef = ref(db, 'beds');
         onValue(bedsRef, (snapshot) => {
             if (isDragging) return;
@@ -143,6 +168,8 @@
                 preDischarge: !!data[key].preDischarge,
                 readyForBilling: !!data[key].readyForBilling,
                 billed: !!data[key].billed,
+                delayed: !!data[key].delayed, // 新增：延遲狀態
+                delayReason: data[key].delayReason || "", // 新增：延遲原因
                 index: data[key].index !== undefined ? Number(data[key].index) : 9999
             })).sort((a, b) => {
                 if (a.index !== b.index) return a.index - b.index;
@@ -153,20 +180,31 @@
             renderGrid();
         });
 
+        // 載入原因列表
+        let reasonList = [];
+        const reasonsRef = ref(db, 'reasons');
+        onValue(reasonsRef, (snapshot) => {
+            const val = snapshot.val();
+            if (val) {
+                reasonList = val;
+            } else {
+                // 如果沒有資料，寫入預設值
+                set(reasonsRef, defaultReasons);
+                reasonList = defaultReasons;
+            }
+        });
+
         document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
 
-        // 通知開關切換功能
         window.toggleNotify = function() {
             isNotifyEnabled = !isNotifyEnabled;
             const btn = document.getElementById('btn-notify-toggle');
-            
             if (isNotifyEnabled) {
                 btn.innerHTML = '🔔 通知：開啟';
                 btn.className = 'ml-2 px-3 py-1.5 rounded bg-green-100 text-green-700 border border-green-300 font-bold text-sm hover:bg-green-200 transition flex items-center gap-1';
             } else {
                 btn.innerHTML = '🔕 通知：靜音';
                 btn.className = 'ml-2 px-3 py-1.5 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-sm hover:bg-gray-300 transition flex items-center gap-1';
-                // 靜音時立刻停止標題閃爍
                 stopTitleFlash();
             }
         }
@@ -177,13 +215,10 @@
                 isFirstLoad = false;
                 return;
             }
-
-            // 如果通知被關閉，直接更新狀態記錄但不執行後續通知
             if (!isNotifyEnabled) {
                 beds.forEach(bed => { lastBedStates[bed.id] = bed.readyForBilling; });
                 return;
             }
-
             let hasNewNotification = false;
             beds.forEach(bed => {
                 if (bed.readyForBilling === true && lastBedStates[bed.id] !== true) {
@@ -257,21 +292,27 @@
                     }
                 } else {
                     let cardClass = `bed-card w-28 h-24 flex flex-col items-center justify-center rounded-lg shadow-sm ${getStatusClass(bed)}`;
-                    if (bed.preDischarge || bed.readyForBilling || bed.billed) cardClass += " shadow-md"; 
+                    if (bed.preDischarge || bed.readyForBilling || bed.billed || bed.delayed) cardClass += " shadow-md"; 
                     
                     div.className = cardClass;
                     div.innerHTML = `<span class="text-2xl font-bold pointer-events-none">${bed.id}</span>`; 
                     
+                    // 標籤邏輯：橘(完) > 藍(延遲) > 綠(可辦) > 粉(預)
                     if(bed.billed) {
                          div.innerHTML += `<span class="text-[10px] font-bold bg-orange-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">已辦出院</span>`;
+                    } else if (bed.delayed) {
+                        // 延遲狀態顯示原因
+                        div.innerHTML += `<span class="text-[10px] font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none truncate max-w-[90%]">${bed.delayReason || '延遲出院'}</span>`;
                     } else if(bed.readyForBilling) {
                         div.innerHTML += `<span class="text-[10px] font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">可辦出院</span>`;
                     } else if (bed.preDischarge) {
                         div.innerHTML += `<span class="text-[10px] font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">預出院</span>`;
                     }
 
-                    div.onclick = (e) => handleBedClick(bed);
-                    if (currentRole === 'control' && !bed.preDischarge && !bed.readyForBilling && !bed.billed) {
+                    // 綁定點擊與長按事件
+                    attachBedEvents(div, bed);
+                    
+                    if (currentRole === 'control' && !bed.preDischarge && !bed.readyForBilling && !bed.billed && !bed.delayed) {
                          div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
                          div.title = "雙擊刪除 / 拖曳排序";
                     }
@@ -279,6 +320,163 @@
                 grid.appendChild(div);
             });
             initSortable();
+        }
+
+        // 處理複雜的點擊與長按邏輯
+        function attachBedEvents(element, bed) {
+            let pressTimer;
+            let isLongPress = false;
+
+            // 電腦版滑鼠事件
+            element.onmousedown = function(e) {
+                if(e.button !== 0) return; // 只處理左鍵
+                isLongPress = false;
+                pressTimer = setTimeout(() => {
+                    isLongPress = true;
+                    handleLongPress(bed);
+                }, 800); // 800ms 為長按
+            };
+            
+            element.onmouseup = function() {
+                clearTimeout(pressTimer);
+            };
+            
+            element.onclick = function() {
+                if (!isLongPress) handleShortClick(bed);
+            };
+
+            // 手機版觸控事件
+            element.ontouchstart = function() {
+                isLongPress = false;
+                pressTimer = setTimeout(() => {
+                    isLongPress = true;
+                    handleLongPress(bed);
+                }, 800);
+            };
+            
+            element.ontouchend = function() {
+                clearTimeout(pressTimer);
+            };
+        }
+
+        // 短按處理 (一般狀態切換)
+        function handleShortClick(bed) {
+            if (isDragging) return; 
+            
+            // 如果是延遲狀態，短按詢問是否解除
+            if (bed.delayed) {
+                if (currentRole === 'nursing' || currentRole === 'control') {
+                    if (confirm(`解除「${bed.id}」的延遲狀態？`)) {
+                        update(ref(db, `beds/${bed.id}`), { delayed: false, delayReason: "" });
+                    }
+                }
+                return;
+            }
+
+            const updates = {};
+            
+            if (currentRole === 'control') {
+                updates[`/beds/${bed.id}/preDischarge`] = !bed.preDischarge;
+            } 
+            else if (currentRole === 'nursing') {
+                updates[`/beds/${bed.id}/readyForBilling`] = !bed.readyForBilling;
+                if (bed.readyForBilling) updates[`/beds/${bed.id}/billed`] = false; 
+            }
+            else if (currentRole === 'clerk') {
+                if (!bed.readyForBilling && !bed.billed) {
+                    alert("無法標記：護理端尚未確認可辦出院");
+                    return;
+                }
+                updates[`/beds/${bed.id}/billed`] = !bed.billed;
+            }
+            update(ref(db), updates);
+        }
+
+        // 長按處理 (開啟延遲選單)
+        function handleLongPress(bed) {
+            // 只有護理端可以長按設定延遲
+            if (currentRole !== 'nursing') return;
+
+            // 震動回饋 (手機)
+            if (navigator.vibrate) navigator.vibrate(50);
+            
+            openReasonModal(bed);
+        }
+
+        // 開啟原因選擇視窗 (護理端)
+        window.openReasonModal = function(bed) {
+            const modal = document.getElementById('modal-container');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+            
+            title.innerText = `設定 ${bed.id} 延遲出院原因`;
+            content.innerHTML = '';
+
+            reasonList.forEach(reason => {
+                const btn = document.createElement('button');
+                btn.className = "w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded border border-blue-200 text-blue-800 font-bold mb-2";
+                btn.innerText = reason;
+                btn.onclick = () => {
+                    // 寫入資料庫：設定延遲並記錄原因
+                    update(ref(db, `beds/${bed.id}`), {
+                        delayed: true,
+                        delayReason: reason,
+                        // 通常延遲會暫時取消「可辦出院」狀態，視需求而定，這裡先不取消，讓顏色覆蓋
+                    });
+                    closeModal();
+                };
+                content.appendChild(btn);
+            });
+            
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        // 開啟原因編輯視窗 (控制端)
+        window.openReasonConfig = function() {
+            const modal = document.getElementById('modal-container');
+            const title = document.getElementById('modal-title');
+            const content = document.getElementById('modal-content');
+            
+            title.innerText = "編輯原因選單";
+            content.innerHTML = '<div class="mb-4 flex gap-2"><input id="new-reason-input" class="border p-2 rounded flex-grow" placeholder="新原因"><button onclick="addNewReason()" class="bg-green-500 text-white px-3 py-2 rounded">新增</button></div>';
+            
+            const listDiv = document.createElement('div');
+            listDiv.className = "space-y-2";
+            
+            reasonList.forEach((reason, index) => {
+                const row = document.createElement('div');
+                row.className = "flex justify-between items-center bg-gray-50 p-2 rounded border";
+                row.innerHTML = `<span>${reason}</span><button onclick="removeReason(${index})" class="text-red-500 font-bold px-2">✕</button>`;
+                listDiv.appendChild(row);
+            });
+            content.appendChild(listDiv);
+
+            modal.classList.remove('hidden');
+            modal.classList.add('flex');
+        }
+
+        window.addNewReason = function() {
+            const input = document.getElementById('new-reason-input');
+            const val = input.value.trim();
+            if(val) {
+                const newList = [...reasonList, val];
+                set(ref(db, 'reasons'), newList);
+                openReasonConfig(); // 重新渲染
+            }
+        }
+
+        window.removeReason = function(index) {
+            if(confirm("確定刪除此原因？")) {
+                const newList = reasonList.filter((_, i) => i !== index);
+                set(ref(db, 'reasons'), newList);
+                openReasonConfig(); // 重新渲染
+            }
+        }
+
+        window.closeModal = function() {
+            document.getElementById('modal-container').classList.add('hidden');
+            document.getElementById('modal-container').classList.remove('flex');
         }
 
         function initSortable() {
@@ -307,34 +505,13 @@
             update(ref(db), updates);
         }
 
+        // 優先權：橘(完) > 藍(延遲) > 綠(可辦) > 粉(預)
         function getStatusClass(bed) {
             if (bed.billed) return 'status-billed';
+            if (bed.delayed) return 'status-delayed'; // 藍色優先權僅次於已結帳
             if (bed.readyForBilling) return 'status-ready';
             if (bed.preDischarge) return 'status-pre-discharge';
             return 'status-normal';
-        }
-
-        window.handleBedClick = function(bed) {
-            if (isDragging) return; 
-            if (bed.type === 'separator') return;
-
-            const updates = {};
-            
-            if (currentRole === 'control') {
-                updates[`/beds/${bed.id}/preDischarge`] = !bed.preDischarge;
-            } 
-            else if (currentRole === 'nursing') {
-                updates[`/beds/${bed.id}/readyForBilling`] = !bed.readyForBilling;
-                if (bed.readyForBilling) updates[`/beds/${bed.id}/billed`] = false; 
-            }
-            else if (currentRole === 'clerk') {
-                if (!bed.readyForBilling && !bed.billed) {
-                    alert("無法標記：護理端尚未確認可辦出院");
-                    return;
-                }
-                updates[`/beds/${bed.id}/billed`] = !bed.billed;
-            }
-            update(ref(db), updates);
         }
 
         window.clearAllStatuses = function() {
@@ -345,6 +522,8 @@
                 updates[`/beds/${bed.id}/preDischarge`] = false;
                 updates[`/beds/${bed.id}/readyForBilling`] = false;
                 updates[`/beds/${bed.id}/billed`] = false;
+                updates[`/beds/${bed.id}/delayed`] = false;
+                updates[`/beds/${bed.id}/delayReason`] = "";
             });
             update(ref(db), updates);
         }
@@ -355,7 +534,7 @@
             if (!id) return;
             const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
             set(ref(db, 'beds/' + id), { 
-                type: 'bed', preDischarge: false, readyForBilling: false, billed: false, index: maxIndex + 1 
+                type: 'bed', preDischarge: false, readyForBilling: false, billed: false, delayed: false, delayReason: "", index: maxIndex + 1 
             });
             input.value = ''; input.focus(); 
         }
@@ -400,7 +579,6 @@
                 setRole('control');
             }
         }
-
         checkUrlAndInit();
     </script>
 </body>
