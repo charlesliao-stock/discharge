@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>病房出院即時看板 (V11-常駐通知版)</title>
+    <title>病房出院即時看板 (V12-緊湊版+網址分流)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -20,7 +20,8 @@
         }
         
         .separator-card {
-            width: 100%; height: 30px; margin: 5px 0;
+            width: 100%; height: 20px; /* 縮小分隔線高度 */
+            margin: 2px 0; /* 縮小分隔線邊距 */
             display: flex; align-items: center; justify-content: center;
             cursor: grab; user-select: none;
         }
@@ -29,18 +30,10 @@
         .sortable-drag { cursor: grabbing; opacity: 1 !important; background: #ffffff; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25); transform: scale(1.05); z-index: 9999 !important; }
         .cursor-locked { cursor: default; }
 
-        /* 通知卡片動畫 */
-        @keyframes slideIn {
-            from { transform: translateX(100%); opacity: 0; }
-            to { transform: translateX(0); opacity: 1; }
-        }
-        @keyframes fadeOut {
-            to { transform: translateX(100%); opacity: 0; }
-        }
+        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
+        @keyframes fadeOut { to { transform: translateX(100%); opacity: 0; } }
         .toast-animate-in { animation: slideIn 0.3s ease-out forwards; }
         .toast-animate-out { animation: fadeOut 0.3s ease-in forwards; }
-        
-        /* 讓通知卡片看起來是可以點擊的 */
         .toast-card { cursor: pointer; transition: transform 0.1s; }
         .toast-card:active { transform: scale(0.98); }
     </style>
@@ -97,7 +90,7 @@
             </div>
         </div>
 
-        <div id="bed-grid" class="flex flex-wrap gap-3 content-start min-h-[200px]">
+        <div id="bed-grid" class="flex flex-wrap gap-x-3 gap-y-1 content-start min-h-[200px]">
             <div class="w-full text-center text-gray-400 py-10">資料載入中...</div>
         </div>
     </div>
@@ -127,7 +120,6 @@
         let lastBedStates = {}; 
         let isFirstLoad = true;
         
-        // 標題閃爍相關變數
         let flashInterval = null;
         const originalTitle = document.title;
         let isFlashing = false;
@@ -153,12 +145,7 @@
             renderGrid();
         });
 
-        // 監聽網頁可見度變化 (當使用者切換回來時停止閃爍)
-        document.addEventListener('visibilitychange', () => {
-            if (!document.hidden) {
-                stopTitleFlash();
-            }
-        });
+        document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
 
         function checkAndNotify(beds) {
             if (isFirstLoad) {
@@ -166,9 +153,7 @@
                 isFirstLoad = false;
                 return;
             }
-
             let hasNewNotification = false;
-
             beds.forEach(bed => {
                 if (bed.readyForBilling === true && lastBedStates[bed.id] !== true) {
                     showToast(bed.id);
@@ -176,38 +161,28 @@
                 }
                 lastBedStates[bed.id] = bed.readyForBilling;
             });
-
-            // 如果有新通知，且目前網頁不是使用者的焦點視窗，就開始閃爍標題
-            if (hasNewNotification && document.hidden) {
-                startTitleFlash();
-            }
+            if (hasNewNotification && document.hidden) startTitleFlash();
         }
 
-        // 開始標題閃爍
         function startTitleFlash() {
             if (isFlashing) return;
             isFlashing = true;
             let showAlert = true;
-            
             flashInterval = setInterval(() => {
                 document.title = showAlert ? "🔔【有新通知】" : originalTitle;
                 showAlert = !showAlert;
-            }, 1000); // 每 1 秒切換一次
+            }, 1000);
         }
 
-        // 停止標題閃爍
         function stopTitleFlash() {
             clearInterval(flashInterval);
             document.title = originalTitle;
             isFlashing = false;
         }
 
-        // 顯示常駐通知 (點擊才消失)
         function showToast(bedId) {
             const container = document.getElementById('toast-container');
             const toast = document.createElement('div');
-            
-            // 加入 toast-card class
             toast.className = "toast-card toast-animate-in bg-green-600 text-white px-6 py-4 rounded-lg shadow-2xl flex items-center justify-between gap-4 border-2 border-green-400 min-w-[250px]";
             toast.innerHTML = `
                 <div class="flex items-center gap-3">
@@ -219,21 +194,12 @@
                 </div>
                 <div class="text-green-200 text-xl font-bold">✕</div>
             `;
-            
-            // 修改點擊事件：點擊後執行消失動畫，然後移除
             toast.onclick = () => {
                 toast.classList.remove('toast-animate-in');
                 toast.classList.add('toast-animate-out');
-                
-                // 動畫結束後從 DOM 移除
-                setTimeout(() => {
-                    toast.remove();
-                }, 300);
+                setTimeout(() => toast.remove(), 300);
             };
-            
             container.appendChild(toast);
-            
-            // 這裡不再有自動移除的 setTimeout
         }
 
         function renderGrid() {
@@ -391,7 +357,23 @@
             document.getElementById('clerk-panel').classList.toggle('hidden', role !== 'clerk');
             renderGrid();
         }
-        setRole('control');
+
+        // 初始載入：檢查網址參數 ?v=...
+        // v=1 -> 控制端, v=2 -> 護理端, v=3 -> 書記端
+        function checkUrlAndInit() {
+            const params = new URLSearchParams(window.location.search);
+            const v = params.get('v');
+            if (v === '2') {
+                setRole('nursing');
+            } else if (v === '3') {
+                setRole('clerk');
+            } else {
+                setRole('control');
+            }
+        }
+
+        // 啟動程式
+        checkUrlAndInit();
     </script>
 </body>
 </html>
