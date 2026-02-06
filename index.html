@@ -3,28 +3,39 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>病房出院即時看板 (V6-極致單一拖曳版)</title>
+    <title>病房出院即時看板 (V7-防抖動終極版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
-        /* 關鍵修正 1：全域禁止在拖曳區選取文字 
-           這能防止拖曳時出現藍色反白，那是造成「看起來像拖多個」的主因
-        */
         #bed-grid {
             user-select: none; 
             -webkit-user-select: none;
         }
 
-        .status-normal { background-color: #f3f4f6; color: #374151; }
-        .status-pre-discharge { background-color: #fbcfe8; color: #831843; border: 2px solid #db2777; }
-        .status-ready { background-color: #bbf7d0; color: #14532d; border: 2px solid #16a34a; }
+        /* 關鍵修正：統一邊框寬度為 2px，防止切換狀態時卡片變大擠壓版面 */
+        .status-normal { 
+            background-color: #ffffff; 
+            color: #374151; 
+            border: 2px solid #e5e7eb; /* 平常是淺灰框 */
+        }
+        .status-pre-discharge { 
+            background-color: #fff1f2; /* 極淡粉紅底 */
+            color: #9d174d; 
+            border: 2px solid #be185d; /* 粉紅框 (粗細不變) */
+        }
+        .status-ready { 
+            background-color: #f0fdf4; /* 極淡綠底 */
+            color: #166534; 
+            border: 2px solid #15803d; /* 綠框 (粗細不變) */
+        }
         
         .bed-card {
-            transition: background-color 0.2s; 
+            transition: background-color 0.1s, border-color 0.1s; 
             cursor: pointer;
-            touch-action: none; /* 防止手機滑動畫面干擾拖曳 */
-            /* 確保卡片內的圖片或文字不會被瀏覽器原生拖曳抓走 */
+            touch-action: none;
             -webkit-user-drag: none; 
+            /* 確保內容不會撐開盒子 */
+            box-sizing: border-box;
         }
         
         .separator-card {
@@ -38,31 +49,27 @@
             user-select: none;
         }
 
-        /* 關鍵修正 2：明確定義「影子」和「拖曳物」的樣式
-        */
-        /* 留在原地的那個「坑」：顏色變淡，明確表示這裡會空出來 */
         .sortable-ghost { 
             opacity: 0.2 !important; 
             background: #e5e7eb !important; 
             border: 2px dashed #9ca3af !important;
         }
         
-        /* 跟著滑鼠跑的「那一個」： 
-           加強陰影，設為不透明，並且放大，讓它看起來是「浮起來的唯一一個」
-        */
         .sortable-drag { 
             cursor: grabbing; 
             opacity: 1 !important; 
             background: #ffffff; 
-            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.25); 
-            transform: scale(1.05) rotate(2deg); /* 稍微傾斜一點更有拿起來的感覺 */
-            z-index: 9999 !important; /* 保證在最最最上層 */
+            box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.25); 
+            transform: scale(1.05); 
+            z-index: 9999 !important;
         }
         
         .cursor-locked { cursor: default; }
     </style>
 </head>
-<body class="bg-gray-100 p-6 select-none"> <div class="max-w-6xl mx-auto">
+<body class="bg-gray-100 p-6 select-none">
+
+    <div class="max-w-6xl mx-auto">
         <div class="mb-6 flex flex-col sm:flex-row justify-between items-center bg-white p-4 rounded shadow gap-4">
             <h1 class="text-xl font-bold text-gray-800 flex items-center gap-2">
                 🏥 出院動態看板 
@@ -171,9 +178,13 @@
                         div.classList.add('cursor-default');
                     }
                 } else {
-                    let cardClass = `bed-card w-28 h-24 flex flex-col items-center justify-center rounded-lg shadow-sm border relative bg-white ${getStatusClass(bed)}`;
+                    // 基本樣式：w-28 (寬度固定) h-24 (高度固定)
+                    // 這裡不加 border class，改由 getStatusClass 統一加入 2px border
+                    let cardClass = `bed-card w-28 h-24 flex flex-col items-center justify-center rounded-lg shadow-sm ${getStatusClass(bed)}`;
+                    
+                    // 只有有狀態時才加陰影，不改變大小
                     if (bed.preDischarge || bed.readyForBilling) {
-                        cardClass += " shadow-md border-opacity-100"; 
+                        cardClass += " shadow-md"; 
                     }
                     div.className = cardClass;
                     div.innerHTML = `<span class="text-2xl font-bold pointer-events-none">${bed.id}</span>`; 
@@ -203,28 +214,15 @@
             if (currentRole === 'control') {
                 sortableInstance = new Sortable(grid, {
                     animation: 150,
-                    forceFallback: true, // 必開：用 JS 模擬拖曳，比瀏覽器原生更準
-                    
-                    // 關鍵修正 3：fallbackOnBody
-                    // 拖曳時，把該元素暫時移到 Body 層級。
-                    // 這樣它就不會受 grid 其他元素影響，看起來就是「唯一」浮在空中的卡片
+                    forceFallback: true, 
                     fallbackOnBody: true, 
-                    
                     fallbackClass: "sortable-drag", 
                     ghostClass: "sortable-ghost",
                     delay: 50, 
                     delayOnTouchOnly: true,
-                    
-                    // 明確告訴套件不要使用多選拖曳 (雖然預設就是 false，但寫出來保險)
                     multiDrag: false,
-
-                    onStart: function() {
-                        isDragging = true;
-                    },
-                    onEnd: function (evt) {
-                        isDragging = false; 
-                        saveNewOrder(); 
-                    }
+                    onStart: function() { isDragging = true; },
+                    onEnd: function (evt) { isDragging = false; saveNewOrder(); }
                 });
                 grid.classList.remove('cursor-locked');
             } else {
@@ -237,8 +235,7 @@
             const items = grid.querySelectorAll('[data-id]');
             const updates = {};
             items.forEach((item, index) => {
-                const id = item.getAttribute('data-id');
-                updates[`/beds/${id}/index`] = Number(index);
+                updates[`/beds/${item.getAttribute('data-id')}/index`] = Number(index);
             });
             update(ref(db), updates);
         }
