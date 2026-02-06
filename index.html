@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>病房出院即時看板 (V4-排版強化版)</title>
+    <title>病房出院即時看板 (V5-穩定拖曳版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -12,7 +12,7 @@
         .status-ready { background-color: #bbf7d0; color: #14532d; border: 2px solid #16a34a; }
         
         .bed-card {
-            transition: transform 0.1s, background-color 0.2s;
+            transition: background-color 0.2s; /* 移除 transform transition 避免拖曳時視覺干擾 */
             cursor: pointer;
             user-select: none;
             touch-action: none;
@@ -20,18 +20,20 @@
         
         /* 分隔線樣式 */
         .separator-card {
-            width: 100%; /* 強制換行的關鍵 */
-            height: 20px;
-            margin-top: 5px;
-            margin-bottom: 5px;
+            width: 100%; 
+            height: 30px; /* 稍微加高一點比較好拖曳 */
+            margin: 5px 0;
             display: flex;
             align-items: center;
             justify-content: center;
             cursor: grab;
         }
 
-        .sortable-ghost { opacity: 0.4; background: #e5e7eb; border: 2px dashed #9ca3af; }
-        .sortable-drag { cursor: grabbing; opacity: 1; transform: scale(1.05); }
+        /* 拖曳時的「替身」樣式 */
+        .sortable-ghost { opacity: 0.2; background: #9ca3af; }
+        /* 拖曳中的「本體」樣式 */
+        .sortable-drag { cursor: grabbing; opacity: 1; background: #fff; box-shadow: 0 20px 25px -5px rgba(0, 0, 0, 0.1), 0 10px 10px -5px rgba(0, 0, 0, 0.04); transform: scale(1.05); }
+        
         .cursor-locked { cursor: default; }
     </style>
 </head>
@@ -44,8 +46,8 @@
                 <span id="role-badge" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">控制端</span>
             </h1>
             <div class="flex gap-2">
-                <button onclick="setRole('control')" id="btn-control" class="px-4 py-2 rounded bg-blue-500 text-white font-bold shadow transition hover:bg-blue-600">控制端</button>
-                <button onclick="setRole('nursing')" id="btn-nursing" class="px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition hover:bg-gray-300">護理端</button>
+                <button onclick="setRole('control')" id="btn-control" class="px-4 py-2 rounded bg-blue-500 text-white font-bold shadow transition hover:bg-blue-600">我是控制端</button>
+                <button onclick="setRole('nursing')" id="btn-nursing" class="px-4 py-2 rounded bg-gray-200 text-gray-700 shadow transition hover:bg-gray-300">我是護理端</button>
             </div>
         </div>
 
@@ -59,7 +61,7 @@
                     </div>
                 </div>
                 <div class="flex gap-2 w-full md:w-auto flex-wrap">
-                    <input type="text" id="new-bed-id" placeholder="輸入床號 (例: 20-1)" 
+                    <input type="text" id="new-bed-id" placeholder="輸入床號" 
                            class="border p-2 rounded w-full md:w-40 text-center focus:ring-2 focus:ring-blue-400 outline-none"
                            onkeydown="if(event.key === 'Enter') addBed()">
                     
@@ -108,19 +110,26 @@
         let currentRole = 'control'; 
         let sortableInstance = null;
         let localBedList = [];
+        // 關鍵修正：拖曳狀態鎖
+        let isDragging = false; 
 
         const bedsRef = ref(db, 'beds');
         onValue(bedsRef, (snapshot) => {
+            // 關鍵修正：如果在拖曳中，暫時忽略資料庫更新，避免畫面亂跳
+            if (isDragging) return;
+
             const data = snapshot.val() || {};
             localBedList = Object.keys(data)
                 .map(key => ({id: key, ...data[key]}))
-                .sort((a, b) => (a.index || 9999) - (b.index || 9999));
+                .sort((a, b) => (Number(a.index) || 9999) - (Number(b.index) || 9999));
             
             renderGrid();
         });
 
         function renderGrid() {
             const grid = document.getElementById('bed-grid');
+            
+            // 這裡使用 innerHTML 重繪會破壞拖曳狀態，所以一定要配合 isDragging 檢查
             grid.innerHTML = '';
             
             if (localBedList.length === 0) {
@@ -134,51 +143,36 @@
 
                 // 判斷是否為分隔線
                 if (bed.type === 'separator') {
-                    // 分隔線渲染邏輯
                     div.className = 'separator-card';
-                    
                     if (currentRole === 'control') {
-                        // 控制端：顯示虛線與文字，方便拖曳
                         div.innerHTML = '<div class="w-full border-b-2 border-dashed border-gray-300 text-center text-xs text-gray-400 leading-[0.1em]"><span class="bg-gray-100 px-2">換行分隔線 (雙擊刪除)</span></div>';
-                        div.ondblclick = (e) => {
-                            e.stopPropagation();
-                            deleteBed(bed.id);
-                        };
+                        div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
                         div.title = "拖曳可調整換行位置";
                     } else {
-                        // 護理端：顯示為隱形空行 (只保留高度做間隔)
                         div.innerHTML = '<div class="w-full h-4"></div>'; 
                         div.classList.add('cursor-default');
                     }
-
                 } else {
-                    // 一般床號渲染邏輯 (維持原樣)
                     let cardClass = `bed-card w-28 h-24 flex flex-col items-center justify-center rounded-lg shadow-sm border relative bg-white ${getStatusClass(bed)}`;
-                    
+                    // 只有非拖曳狀態才加立體效果，避免拖曳時卡頓
                     if (bed.preDischarge || bed.readyForBilling) {
-                        cardClass += " shadow-md transform scale-105 z-10"; 
+                        cardClass += " shadow-md border-opacity-100"; 
                     }
-
                     div.className = cardClass;
-                    div.innerHTML = `<span class="text-2xl font-bold">${bed.id}</span>`;
+                    div.innerHTML = `<span class="text-2xl font-bold pointer-events-none">${bed.id}</span>`; // 加入 pointer-events-none 避免拖曳文字
                     
                     if(bed.readyForBilling) {
-                        div.innerHTML += `<span class="text-[10px] font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1">可辦出院</span>`;
+                        div.innerHTML += `<span class="text-[10px] font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">可辦出院</span>`;
                     } else if (bed.preDischarge) {
-                        div.innerHTML += `<span class="text-[10px] font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1">預出院</span>`;
+                        div.innerHTML += `<span class="text-[10px] font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">預出院</span>`;
                     }
 
                     div.onclick = (e) => handleBedClick(bed);
-
                     if (currentRole === 'control' && !bed.preDischarge && !bed.readyForBilling) {
-                         div.ondblclick = (e) => {
-                             e.stopPropagation();
-                             deleteBed(bed.id);
-                         };
+                         div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
                          div.title = "雙擊刪除 / 拖曳排序";
                     }
                 }
-
                 grid.appendChild(div);
             });
 
@@ -192,11 +186,23 @@
             if (currentRole === 'control') {
                 sortableInstance = new Sortable(grid, {
                     animation: 150,
-                    ghostClass: 'sortable-ghost',
-                    dragClass: 'sortable-drag',
-                    delay: 100,
+                    // 關鍵修正：開啟 forceFallback，解決 Flex 排版下的拖曳亂跳問題
+                    forceFallback: true, 
+                    fallbackClass: "sortable-drag", 
+                    ghostClass: "sortable-ghost",
+                    delay: 50, 
                     delayOnTouchOnly: true,
-                    onEnd: function (evt) { saveNewOrder(); }
+                    
+                    // 拖曳開始，鎖定畫面更新
+                    onStart: function() {
+                        isDragging = true;
+                    },
+                    
+                    // 拖曳結束，解除鎖定並存檔
+                    onEnd: function (evt) {
+                        isDragging = false; 
+                        saveNewOrder(); 
+                    }
                 });
                 grid.classList.remove('cursor-locked');
             } else {
@@ -209,7 +215,9 @@
             const items = grid.querySelectorAll('[data-id]');
             const updates = {};
             items.forEach((item, index) => {
-                updates[`/beds/${item.getAttribute('data-id')}/index`] = index;
+                const id = item.getAttribute('data-id');
+                // 確保 index 是數字
+                updates[`/beds/${id}/index`] = Number(index);
             });
             update(ref(db), updates);
         }
@@ -221,7 +229,7 @@
         }
 
         window.handleBedClick = function(bed) {
-            // 如果是分隔線，不處理點擊
+            if (isDragging) return; // 拖曳結束瞬間不觸發點擊
             if (bed.type === 'separator') return;
 
             const updates = {};
@@ -239,7 +247,7 @@
             const id = input.value.trim();
             if (!id) return;
             
-            const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => b.index || 0)) : 0;
+            const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
 
             set(ref(db, 'beds/' + id), {
                 type: 'bed',
@@ -251,23 +259,18 @@
             input.focus(); 
         }
 
-        // 新增分隔線功能
         window.addSeparator = function() {
-            const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => b.index || 0)) : 0;
-            // 產生一個唯一ID，避免重複
+            const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
             const sepId = 'SEP_' + Date.now();
-            
             set(ref(db, 'beds/' + sepId), {
-                type: 'separator', // 標記為分隔線
+                type: 'separator', 
                 index: maxIndex + 1
             });
         }
 
         window.deleteBed = function(id) {
-            // 判斷是否為分隔線，顯示不同提示
             const isSep = id.startsWith('SEP_');
             const msg = isSep ? '確定要移除此換行分隔線嗎？' : `刪除床號 ${id}？`;
-            
             if(confirm(msg)) remove(ref(db, 'beds/' + id));
         }
 
@@ -291,7 +294,7 @@
 
             document.getElementById('admin-panel').classList.toggle('hidden', role !== 'control');
             document.getElementById('nursing-panel').classList.toggle('hidden', role !== 'nursing');
-            // 重新渲染以更新分隔線的顯示狀態
+            
             renderGrid();
         }
 
