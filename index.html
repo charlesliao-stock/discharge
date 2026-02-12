@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>病房出院即時看板 (V17-精簡防呆版)</title>
+    <title>病房出院即時看板 (V18-統計儀表板版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -31,7 +31,6 @@
         .sortable-ghost { opacity: 0.2 !important; background: #e5e7eb !important; border: 2px dashed #9ca3af !important; }
         .sortable-drag { cursor: grabbing; opacity: 1 !important; background: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25); transform: scale(1.05); z-index: 9999 !important; }
         
-        /* 當不在編輯模式時，隱藏拖曳游標 */
         .cursor-locked { cursor: default !important; }
 
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
@@ -41,8 +40,6 @@
         .toast-card { cursor: pointer; transition: transform 0.1s; }
         
         .modal-overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
-        
-        /* 隱藏捲軸但保留功能 (讓功能列更美觀) */
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
     </style>
@@ -68,37 +65,54 @@
                 <span id="role-badge" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">控制端</span>
             </h1>
             
-            <div class="flex flex-nowrap overflow-x-auto no-scrollbar items-center gap-2 w-full sm:w-auto px-1">
-                <div class="flex bg-gray-100 p-1 rounded-lg shrink-0">
-                    <button onclick="setRole('control')" id="btn-control" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">控制</button>
-                    <button onclick="setRole('nursing')" id="btn-nursing" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">護理</button>
-                    <button onclick="setRole('clerk')" id="btn-clerk" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">書記</button>
+            <div class="flex flex-col items-end gap-1 w-full sm:w-auto">
+                <div class="flex flex-nowrap overflow-x-auto no-scrollbar items-center gap-2 w-full sm:w-auto justify-end px-1">
+                    <div class="flex bg-gray-100 p-1 rounded-lg shrink-0">
+                        <button onclick="setRole('control')" id="btn-control" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">控制</button>
+                        <button onclick="setRole('nursing')" id="btn-nursing" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">護理</button>
+                        <button onclick="setRole('clerk')" id="btn-clerk" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">書記</button>
+                    </div>
+                    <button onclick="toggleNotify()" id="btn-notify-toggle" class="shrink-0 px-3 py-1 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition flex items-center gap-1 whitespace-nowrap">
+                        🔕 靜音
+                    </button>
                 </div>
-                <button onclick="toggleNotify()" id="btn-notify-toggle" class="shrink-0 px-3 py-1 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition flex items-center gap-1 whitespace-nowrap">
-                    🔕 靜音
-                </button>
+
+                <div class="flex flex-nowrap gap-2 text-[10px] sm:text-xs font-bold px-1 overflow-x-auto no-scrollbar w-full sm:w-auto justify-end">
+                    <div class="bg-pink-100 text-pink-700 px-2 py-0.5 rounded border border-pink-200 whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-pink-500"></span>
+                        預出: <span id="count-pre">0</span>
+                    </div>
+                    <div class="bg-green-100 text-green-700 px-2 py-0.5 rounded border border-green-200 whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
+                        可辦: <span id="count-ready">0</span>
+                    </div>
+                    <div class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded border border-orange-200 whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-orange-500"></span>
+                        已辦: <span id="count-billed">0</span>
+                    </div>
+                    <div class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200 whitespace-nowrap flex items-center gap-1">
+                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
+                        延遲: <span id="count-delayed">0</span>
+                    </div>
+                </div>
             </div>
         </div>
 
         <div id="admin-panel" class="mb-2 bg-blue-50 p-2 rounded-lg border border-blue-100 shadow-sm hidden">
             <div class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar w-full">
-                
                 <div class="flex items-center gap-2 shrink-0 border-r border-blue-200 pr-2 mr-1">
                     <span class="text-xl">⚙️</span>
                     <button onclick="toggleEditMode()" id="btn-edit-mode" class="bg-gray-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap">
                         🔒 鎖定中
                     </button>
                 </div>
-
                 <div id="edit-tools" class="flex items-center gap-2 hidden shrink-0">
                     <input type="text" id="new-bed-id" placeholder="床號" 
                            class="border p-1.5 rounded w-16 text-center focus:ring-2 focus:ring-blue-400 outline-none text-xs"
                            onkeydown="if(event.key === 'Enter') addBed()">
-                    
                     <button onclick="addBed()" class="bg-blue-600 text-white px-3 py-1.5 rounded font-bold shadow text-xs whitespace-nowrap hover:bg-blue-700">新增</button>
                     <button onclick="addSeparator()" class="bg-gray-500 text-white px-3 py-1.5 rounded font-bold shadow text-xs whitespace-nowrap hover:bg-gray-600">⬇️ 換行</button>
                 </div>
-
                 <div class="flex items-center gap-2 shrink-0">
                      <button onclick="openReasonConfig()" class="bg-indigo-100 text-indigo-700 border border-indigo-300 px-3 py-1.5 rounded font-bold hover:bg-indigo-200 shadow text-xs whitespace-nowrap">📝 原因</button>
                      <button onclick="clearAllStatuses()" class="bg-red-100 text-red-600 border border-red-300 px-3 py-1.5 rounded font-bold hover:bg-red-200 shadow text-xs whitespace-nowrap transition">♻️ 重置</button>
@@ -157,8 +171,6 @@
         let flashInterval = null;
         const originalTitle = document.title;
         let isFlashing = false;
-        
-        // 編輯模式狀態 (預設關閉)
         let isEditMode = false;
 
         const defaultReasons = ["等待家屬", "等待檢查報告", "帳務問題", "病情變化", "等待救護車", "其他"];
@@ -182,9 +194,48 @@
                 return a.id.localeCompare(b.id, undefined, { numeric: true });
             });
             
+            updateCounts(localBedList); // 更新計數器
             checkAndNotify(localBedList); 
             renderGrid();
         });
+
+        // 更新各狀態人數
+        function updateCounts(beds) {
+            let preCount = 0;
+            let readyCount = 0;
+            let billedCount = 0;
+            let delayedCount = 0;
+
+            beds.forEach(bed => {
+                if (bed.type === 'separator') return; // 忽略分隔線
+                
+                // 依照優先權邏輯統計 (與顯示邏輯一致)
+                if (bed.billed) {
+                    billedCount++;
+                } else if (bed.delayed) {
+                    delayedCount++;
+                } else if (bed.readyForBilling) {
+                    readyCount++;
+                } else if (bed.preDischarge) {
+                    preCount++;
+                }
+            });
+
+            // 更新介面數字，加入簡單的跳動效果
+            updateCounterElement('count-pre', preCount);
+            updateCounterElement('count-ready', readyCount);
+            updateCounterElement('count-billed', billedCount);
+            updateCounterElement('count-delayed', delayedCount);
+        }
+
+        function updateCounterElement(id, newValue) {
+            const el = document.getElementById(id);
+            if (el.innerText != newValue) {
+                el.innerText = newValue;
+                el.parentElement.classList.add('scale-110'); // 簡單放大動畫
+                setTimeout(() => el.parentElement.classList.remove('scale-110'), 200);
+            }
+        }
 
         let reasonList = [];
         const reasonsRef = ref(db, 'reasons');
@@ -196,7 +247,6 @@
 
         document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
 
-        // 切換編輯模式
         window.toggleEditMode = function() {
             isEditMode = !isEditMode;
             const btn = document.getElementById('btn-edit-mode');
@@ -211,8 +261,6 @@
                 btn.className = 'bg-gray-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap';
                 tools.classList.add('hidden');
             }
-            
-            // 重新渲染以更新 Sortable 狀態 (啟用/停用拖曳)
             renderGrid();
         }
 
@@ -303,7 +351,7 @@
 
                 if (bed.type === 'separator') {
                     div.className = 'separator-card col-span-full';
-                    if (currentRole === 'control' && isEditMode) { // 只有編輯模式才顯示刪除提示
+                    if (currentRole === 'control' && isEditMode) { 
                         div.innerHTML = '<div class="w-full border-b-2 border-dashed border-gray-300 text-center text-xs text-gray-400 leading-[0.1em] pointer-events-none"><span class="bg-gray-100 px-2">換行 (雙擊刪除)</span></div>';
                         div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
                         div.classList.remove('cursor-default');
@@ -330,7 +378,6 @@
 
                     attachBedEvents(div, bed);
                     
-                    // 雙擊刪除：只有在控制端且開啟編輯模式時才允許
                     if (currentRole === 'control' && isEditMode && !bed.preDischarge && !bed.readyForBilling && !bed.billed && !bed.delayed) {
                          div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
                          div.title = "雙擊刪除 / 拖曳排序";
