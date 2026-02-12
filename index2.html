@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>護理看板系統 V23</title>
+    <title>護理看板系統 V25</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -90,17 +90,14 @@ let isEditMode = false;
 let isNotifyEnabled = false;
 let localBeds = [];
 let localMessages = {};
-let localGroups = []; // 包含 {id, name}
+let localGroups = [];
 let myGroupFilter = 'all';
 
 // --- 資料監聽 ---
 onValue(ref(db, 'groups'), (snap) => {
     const data = snap.val() || {};
-    // 強制補上「未分組」，且確保它在最前面
     const groupsArray = [{ id: 'none', name: '未分組' }];
-    Object.keys(data).forEach(id => {
-        if (id !== 'none') groupsArray.push({ id, name: data[id] });
-    });
+    Object.keys(data).forEach(id => { if (id !== 'none') groupsArray.push({ id, name: data[id] }); });
     localGroups = groupsArray;
     updateGroupSelector();
     renderDashboard();
@@ -108,8 +105,8 @@ onValue(ref(db, 'groups'), (snap) => {
 
 onValue(ref(db, 'beds'), (snap) => {
     const data = snap.val() || {};
-    localBeds = Object.keys(data).map(id => ({ id, ...data[id] }))
-                .sort((a,b) => (a.index || 0) - (b.index || 0));
+    // 從資料庫抓取時不再強制依 index 排序，後續會在各組內依床號排序
+    localBeds = Object.keys(data).map(id => ({ id, ...data[id] }));
     renderDashboard();
 });
 
@@ -120,42 +117,35 @@ onValue(ref(db, 'messages'), (snap) => {
     renderDashboard();
 });
 
-// --- 核心渲染修正 ---
+// --- 渲染 (加入數字排序邏輯) ---
 function renderDashboard() {
     const container = document.getElementById('dashboard-content');
     container.innerHTML = '';
-
     const activeGroupIds = localGroups.map(g => g.id);
     
-    // 渲染各個組別區塊
     localGroups.forEach(group => {
-        // 護理端過濾邏輯
         if (currentRole === 'nursing' && myGroupFilter !== 'all' && myGroupFilter !== group.id) return;
 
         const section = document.createElement('div');
         section.className = "bg-white p-3 rounded-xl shadow-sm border border-gray-200";
         section.innerHTML = `
-            <h2 class="text-sm font-bold text-gray-500 mb-2 flex justify-between items-center">
-                <span>📍 ${group.name}</span>
-            </h2>
+            <h2 class="text-sm font-bold text-gray-500 mb-2 flex justify-between items-center"><span>📍 ${group.name}</span></h2>
             <div id="grid-${group.id}" data-group="${group.id}" class="group-container grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2"></div>
         `;
         container.appendChild(section);
 
         const grid = section.querySelector(`#grid-${group.id}`);
         
-        // 篩選床位：如果床位的組別 ID 不存在於目前組別清單中，則歸類到 none
+        // 核心邏輯：篩選床位並進行「床號數字排序」
         const bedsInGroup = localBeds.filter(bed => {
             const gId = bed.group || 'none';
-            if (group.id === 'none') {
-                return gId === 'none' || !activeGroupIds.includes(gId);
-            }
-            return gId === group.id;
+            return (group.id === 'none') ? (gId === 'none' || !activeGroupIds.includes(gId)) : (gId === group.id);
+        }).sort((a, b) => {
+            // 使用 localeCompare 搭配 numeric: true 進行自然排序 (如 2 < 10)
+            return a.id.localeCompare(b.id, undefined, { numeric: true, sensitivity: 'base' });
         });
 
-        bedsInGroup.forEach(bed => {
-            grid.appendChild(createBedCard(bed));
-        });
+        bedsInGroup.forEach(bed => { grid.appendChild(createBedCard(bed)); });
 
         if (currentRole === 'control' && isEditMode) {
             new Sortable(grid, {
@@ -164,7 +154,7 @@ function renderDashboard() {
                     const bedId = evt.item.getAttribute('data-id');
                     const targetGroup = evt.to.getAttribute('data-group');
                     update(ref(db, `beds/${bedId}`), { group: targetGroup });
-                    saveOrder();
+                    // 此處不再呼叫 saveOrder，因為我們現在強行由床號排序，不看拖曳順序
                 }
             });
         }
@@ -194,6 +184,14 @@ function createBedCard(bed) {
 
     div.innerHTML = innerHTML;
 
+    let pressTimer;
+    div.onmousedown = (e) => { if(e.button === 0) pressTimer = setTimeout(() => openMessageModal(bed.id), 800); };
+    div.onmouseup = () => clearTimeout(pressTimer);
+    div.onmouseleave = () => clearTimeout(pressTimer);
+    div.ontouchstart = () => { pressTimer = setTimeout(() => openMessageModal(bed.id), 800); };
+    div.ontouchend = () => clearTimeout(pressTimer);
+    div.oncontextmenu = (e) => { e.preventDefault(); openMessageModal(bed.id); };
+
     div.onclick = (e) => {
         if (e.target.classList.contains('msg-trigger')) return openMessageModal(bed.id);
         if (e.target.classList.contains('delete-bed-btn')) return deleteBed(bed.id);
@@ -202,68 +200,7 @@ function createBedCard(bed) {
     return div;
 }
 
-// --- 組別管理 ---
-function openGroupManager() {
-    const content = document.getElementById('modal-content');
-    document.getElementById('modal-title').innerText = "⚙️ 組別編輯";
-    
-    let html = `
-        <div class="space-y-2 mb-4">
-            <div class="flex gap-2">
-                <input id="new-group-name" class="flex-1 border p-2 rounded" placeholder="新組別名稱">
-                <button id="btn-add-group" class="bg-green-600 text-white px-3 py-1 rounded font-bold">新增</button>
-            </div>
-        </div>
-        <div class="space-y-2">`;
-    
-    localGroups.forEach(g => {
-        if (g.id === 'none') {
-            html += `<div class="flex items-center gap-2 p-2 bg-gray-50 rounded border"><span class="flex-1 font-bold text-gray-400">未分組 (系統固定)</span></div>`;
-        } else {
-            html += `
-                <div class="flex items-center gap-2 p-2 bg-white rounded border shadow-sm">
-                    <input class="flex-1 font-bold group-edit-input p-1" data-id="${g.id}" value="${g.name}">
-                    <button class="text-red-500 p-1 group-del-btn" data-id="${g.id}">🗑️</button>
-                </div>`;
-        }
-    });
-    content.innerHTML = html;
-
-    document.getElementById('btn-add-group').onclick = () => {
-        const name = document.getElementById('new-group-name').value.trim();
-        if (name) {
-            set(ref(db, `groups/group_${Date.now()}`), name);
-            openGroupManager();
-        }
-    };
-    content.querySelectorAll('.group-edit-input').forEach(input => {
-        input.onchange = (e) => set(ref(db, `groups/${e.target.dataset.id}`), e.target.value);
-    });
-    content.querySelectorAll('.group-del-btn').forEach(btn => {
-        btn.onclick = (e) => {
-            if (confirm('確定刪除？組內床位將自動回到「未分組」。')) {
-                remove(ref(db, `groups/${e.target.dataset.id}`));
-                openGroupManager();
-            }
-        };
-    });
-    showModal();
-}
-
-function deleteBed(id) {
-    if (confirm(`確定刪除 ${id} 床？`)) {
-        remove(ref(db, `beds/${id}`));
-        remove(ref(db, `messages/${id}`));
-    }
-}
-
-function updateGroupSelector() {
-    const sel = document.getElementById('select-my-group');
-    sel.innerHTML = '<option value="all">顯示全部組別</option>';
-    localGroups.forEach(g => { sel.innerHTML += `<option value="${g.id}">${g.name}</option>`; });
-    sel.value = myGroupFilter;
-}
-
+// --- 留言與 Modal ---
 function openMessageModal(bedId) {
     const modalContent = document.getElementById('modal-content');
     document.getElementById('modal-title').innerText = `${bedId} 留言板`;
@@ -274,8 +211,11 @@ function openMessageModal(bedId) {
     });
     html += (Object.keys(msgs).length === 0 ? '<div class="text-center text-gray-400 py-4">尚無留言</div>' : '') + '</div>';
     modalContent.innerHTML = html + `<div class="flex gap-2"><input id="input-new-msg" class="flex-1 border p-2 rounded text-xs" placeholder="輸入訊息..."><button id="btn-submit-msg" class="bg-blue-600 text-white px-3 py-1 rounded font-bold">送出</button></div>`;
+    
+    setTimeout(() => document.getElementById('input-new-msg').focus(), 100);
+
     document.getElementById('btn-submit-msg').onclick = () => {
-        const text = document.getElementById('input-new-msg').value;
+        const text = document.getElementById('input-new-msg').value.trim();
         if (text) {
             push(ref(db, `messages/${bedId}`), { text, sender: currentRole, time: Date.now() });
             openMessageModal(bedId);
@@ -284,61 +224,28 @@ function openMessageModal(bedId) {
     showModal();
 }
 
-function checkNewMessages(newData) {
-    if (!isNotifyEnabled) return;
-    Object.keys(newData).forEach(bedId => {
-        if (Object.keys(newData[bedId] || {}).length > Object.keys(localMessages[bedId] || {}).length) {
-            const bed = localBeds.find(b => b.id === bedId);
-            if (myGroupFilter === 'all' || (bed && bed.group === myGroupFilter)) {
-                const latest = Object.values(newData[bedId]).pop();
-                showMsgToast(bedId, latest.text);
-            }
-        }
+function openGroupManager() {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').innerText = "⚙️ 組別編輯";
+    let html = `<div class="space-y-2 mb-4"><div class="flex gap-2"><input id="new-group-name" class="flex-1 border p-2 rounded" placeholder="新組別"><button id="btn-add-group" class="bg-green-600 text-white px-3 py-1 rounded font-bold">新增</button></div></div><div class="space-y-2">`;
+    localGroups.forEach(g => {
+        if (g.id === 'none') html += `<div class="flex items-center p-2 bg-gray-50 border rounded text-gray-400 font-bold">未分組 (系統固定)</div>`;
+        else html += `<div class="flex items-center gap-2 p-2 bg-white border rounded shadow-sm"><input class="flex-1 font-bold group-edit-input p-1" data-id="${g.id}" value="${g.name}"><button class="text-red-500 group-del-btn" data-id="${g.id}">🗑️</button></div>`;
     });
+    content.innerHTML = html;
+    document.getElementById('btn-add-group').onclick = () => { const name = document.getElementById('new-group-name').value.trim(); if (name) { set(ref(db, `groups/group_${Date.now()}`), name); openGroupManager(); } };
+    content.querySelectorAll('.group-edit-input').forEach(i => i.onchange = (e) => set(ref(db, `groups/${e.target.dataset.id}`), e.target.value));
+    content.querySelectorAll('.group-del-btn').forEach(b => b.onclick = (e) => { if (confirm('刪除組別？')) { remove(ref(db, `groups/${e.target.dataset.id}`)); openGroupManager(); } });
+    showModal();
 }
 
-function showMsgToast(bedId, text) {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = 'toast-animate-in bg-blue-800 text-white p-3 rounded-lg shadow-xl border-l-4 border-yellow-400 mb-2';
-    toast.innerHTML = `<div class="text-[10px] font-bold text-yellow-400">新留言</div><div class="text-sm font-bold">${bedId}：${text}</div>`;
-    container.appendChild(toast);
-    setTimeout(() => { toast.classList.replace('toast-animate-in', 'toast-animate-out'); setTimeout(() => toast.remove(), 300); }, 3000);
-}
-
-function handleBedClick(bed) {
-    if (isEditMode) return;
-    const path = `beds/${bed.id}`;
-    if (currentRole === 'control') update(ref(db, path), { preDischarge: !bed.preDischarge });
-    else if (currentRole === 'nursing') update(ref(db, path), { readyForBilling: !bed.readyForBilling });
-    else if (currentRole === 'clerk' && (bed.readyForBilling || bed.billed)) update(ref(db, path), { billed: !bed.billed });
-}
-
-function setRole(role) {
-    currentRole = role;
-    const colors = { control: 'blue', nursing: 'green', clerk: 'orange' };
-    ['control', 'nursing', 'clerk'].forEach(r => {
-        document.getElementById(`btn-${r}`).className = `px-3 py-1 rounded text-xs font-bold transition ${r === role ? 'bg-'+colors[r]+'-500 text-white' : 'bg-white text-gray-500'}`;
-    });
-    document.getElementById('admin-panel').classList.toggle('hidden', role !== 'control');
-    document.getElementById('select-my-group').classList.toggle('hidden', role !== 'nursing');
-    renderDashboard();
-}
-
-function saveOrder() {
-    const updates = {};
-    document.querySelectorAll('.bed-card').forEach((el, i) => updates[`beds/${el.dataset.id}/index`] = i);
-    update(ref(db), updates);
-}
-
-function getStatusClass(bed) {
-    if (bed.billed) return 'status-billed';
-    if (bed.delayed) return 'status-delayed';
-    if (bed.readyForBilling) return 'status-ready';
-    if (bed.preDischarge) return 'status-pre-discharge';
-    return 'status-normal';
-}
-
+function deleteBed(id) { if (confirm(`刪除 ${id} 床？`)) { remove(ref(db, `beds/${id}`)); remove(ref(db, `messages/${id}`)); } }
+function updateGroupSelector() { const sel = document.getElementById('select-my-group'); sel.innerHTML = '<option value="all">顯示全部</option>'; localGroups.forEach(g => { sel.innerHTML += `<option value="${g.id}">${g.name}</option>`; }); sel.value = myGroupFilter; }
+function checkNewMessages(newData) { if (!isNotifyEnabled) return; Object.keys(newData).forEach(bedId => { if (Object.keys(newData[bedId] || {}).length > Object.keys(localMessages[bedId] || {}).length) { const bed = localBeds.find(b => b.id === bedId); if (myGroupFilter === 'all' || (bed && bed.group === myGroupFilter)) { showMsgToast(bedId, Object.values(newData[bedId]).pop().text); } } }); }
+function showMsgToast(bedId, text) { const container = document.getElementById('toast-container'); const toast = document.createElement('div'); toast.className = 'toast-animate-in bg-blue-800 text-white p-3 rounded-lg shadow-xl border-l-4 border-yellow-400 mb-2'; toast.innerHTML = `<div class="text-[10px] font-bold text-yellow-400">新留言</div><div class="text-sm font-bold">${bedId}：${text}</div>`; container.appendChild(toast); setTimeout(() => { toast.classList.replace('toast-animate-in', 'toast-animate-out'); setTimeout(() => toast.remove(), 300); }, 3000); }
+function handleBedClick(bed) { if (isEditMode) return; const path = `beds/${bed.id}`; if (currentRole === 'control') update(ref(db, path), { preDischarge: !bed.preDischarge }); else if (currentRole === 'nursing') update(ref(db, path), { readyForBilling: !bed.readyForBilling }); else if (currentRole === 'clerk' && (bed.readyForBilling || bed.billed)) update(ref(db, path), { billed: !bed.billed }); }
+function setRole(role) { currentRole = role; const colors = { control: 'blue', nursing: 'green', clerk: 'orange' }; ['control', 'nursing', 'clerk'].forEach(r => { document.getElementById(`btn-${r}`).className = `px-3 py-1 rounded text-xs font-bold transition ${r === role ? 'bg-'+colors[r]+'-500 text-white' : 'bg-white text-gray-500'}`; }); document.getElementById('admin-panel').classList.toggle('hidden', role !== 'control'); document.getElementById('select-my-group').classList.toggle('hidden', role !== 'nursing'); renderDashboard(); }
+function getStatusClass(bed) { if (bed.billed) return 'status-billed'; if (bed.delayed) return 'status-delayed'; if (bed.readyForBilling) return 'status-ready'; if (bed.preDischarge) return 'status-pre-discharge'; return 'status-normal'; }
 function showModal() { document.getElementById('modal-container').classList.remove('hidden'); document.getElementById('modal-container').classList.add('flex'); }
 function closeModal() { document.getElementById('modal-container').classList.add('hidden'); }
 
@@ -348,21 +255,9 @@ document.getElementById('btn-clerk').onclick = () => setRole('clerk');
 document.getElementById('modal-close-btn').onclick = closeModal;
 document.getElementById('select-my-group').onchange = (e) => { myGroupFilter = e.target.value; renderDashboard(); };
 document.getElementById('btn-manage-groups').onclick = openGroupManager;
-document.getElementById('btn-add-bed').onclick = () => {
-    const id = document.getElementById('new-bed-id').value.trim();
-    if (id) { set(ref(db, `beds/${id}`), { index: localBeds.length, group: 'none' }); document.getElementById('new-bed-id').value = ''; }
-};
-document.getElementById('btn-edit-mode').onclick = () => {
-    isEditMode = !isEditMode;
-    document.getElementById('btn-edit-mode').innerText = isEditMode ? '🔓 編輯中' : '🔒 鎖定排序';
-    document.getElementById('edit-tools').classList.toggle('hidden', !isEditMode);
-    renderDashboard();
-};
-document.getElementById('btn-notify-toggle').onclick = () => {
-    isNotifyEnabled = !isNotifyEnabled;
-    document.getElementById('btn-notify-toggle').innerText = isNotifyEnabled ? '🔔 通知開' : '🔕 靜音';
-    document.getElementById('btn-notify-toggle').classList.toggle('bg-green-100', isNotifyEnabled);
-};
+document.getElementById('btn-add-bed').onclick = () => { const id = document.getElementById('new-bed-id').value.trim(); if (id) { set(ref(db, `beds/${id}`), { group: 'none' }); document.getElementById('new-bed-id').value = ''; } };
+document.getElementById('btn-edit-mode').onclick = () => { isEditMode = !isEditMode; document.getElementById('btn-edit-mode').innerText = isEditMode ? '🔓 編輯中' : '🔒 鎖定排序'; document.getElementById('edit-tools').classList.toggle('hidden', !isEditMode); renderDashboard(); };
+document.getElementById('btn-notify-toggle').onclick = () => { isNotifyEnabled = !isNotifyEnabled; document.getElementById('btn-notify-toggle').innerText = isNotifyEnabled ? '🔔 通知開' : '🔕 靜音'; document.getElementById('btn-notify-toggle').classList.toggle('bg-green-100', isNotifyEnabled); };
 
 setRole('control');
 </script>
