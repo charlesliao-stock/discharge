@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>病房出院即時看板 (V18-統計儀表板版)</title>
+    <title>病房出院即時看板 (V19-書記通知版)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -133,7 +133,7 @@
             <div class="flex items-center gap-2">
                 <span class="text-xl">📝</span>
                 <div class="text-xs text-gray-700">
-                    <span class="font-bold">書記區：</span>點擊橘色標記已辦理。
+                    <span class="font-bold">書記區：</span>對預出院(粉紅)床號 <span class="text-purple-600 font-bold">長按/右鍵</span> 可加註「可至護理站」。
                 </div>
             </div>
         </div>
@@ -188,18 +188,18 @@
                 billed: !!data[key].billed,
                 delayed: !!data[key].delayed, 
                 delayReason: data[key].delayReason || "", 
+                showClerkNote: !!data[key].showClerkNote, // 新增：書記備註
                 index: data[key].index !== undefined ? Number(data[key].index) : 9999
             })).sort((a, b) => {
                 if (a.index !== b.index) return a.index - b.index;
                 return a.id.localeCompare(b.id, undefined, { numeric: true });
             });
             
-            updateCounts(localBedList); // 更新計數器
+            updateCounts(localBedList);
             checkAndNotify(localBedList); 
             renderGrid();
         });
 
-        // 更新各狀態人數
         function updateCounts(beds) {
             let preCount = 0;
             let readyCount = 0;
@@ -207,21 +207,13 @@
             let delayedCount = 0;
 
             beds.forEach(bed => {
-                if (bed.type === 'separator') return; // 忽略分隔線
-                
-                // 依照優先權邏輯統計 (與顯示邏輯一致)
-                if (bed.billed) {
-                    billedCount++;
-                } else if (bed.delayed) {
-                    delayedCount++;
-                } else if (bed.readyForBilling) {
-                    readyCount++;
-                } else if (bed.preDischarge) {
-                    preCount++;
-                }
+                if (bed.type === 'separator') return;
+                if (bed.billed) billedCount++;
+                else if (bed.delayed) delayedCount++;
+                else if (bed.readyForBilling) readyCount++;
+                else if (bed.preDischarge) preCount++;
             });
 
-            // 更新介面數字，加入簡單的跳動效果
             updateCounterElement('count-pre', preCount);
             updateCounterElement('count-ready', readyCount);
             updateCounterElement('count-billed', billedCount);
@@ -232,7 +224,7 @@
             const el = document.getElementById(id);
             if (el.innerText != newValue) {
                 el.innerText = newValue;
-                el.parentElement.classList.add('scale-110'); // 簡單放大動畫
+                el.parentElement.classList.add('scale-110'); 
                 setTimeout(() => el.parentElement.classList.remove('scale-110'), 200);
             }
         }
@@ -374,6 +366,10 @@
                         div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">可辦出院</span>`;
                     } else if (bed.preDischarge) {
                         div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">預出院</span>`;
+                        // 新增：顯示書記的「可至護理站」備註
+                        if (bed.showClerkNote) {
+                            div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-purple-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none animate-pulse">可至護理站</span>`;
+                        }
                     }
 
                     attachBedEvents(div, bed);
@@ -408,6 +404,9 @@
                 e.preventDefault(); 
                 if (currentRole === 'nursing') {
                     openReasonModal(bed); 
+                } else if (currentRole === 'clerk' && bed.preDischarge && !bed.readyForBilling && !bed.billed) {
+                    // 書記右鍵：切換備註
+                    toggleClerkNote(bed);
                 }
                 return false;
             };
@@ -424,6 +423,11 @@
                 }, 800);
             };
             element.ontouchend = function() { clearTimeout(pressTimer); };
+        }
+
+        function toggleClerkNote(bed) {
+            // 書記功能：切換顯示/隱藏「可至護理站」
+            update(ref(db, `beds/${bed.id}`), { showClerkNote: !bed.showClerkNote });
         }
 
         function handleShortClick(bed) {
@@ -448,7 +452,12 @@
             }
             else if (currentRole === 'clerk') {
                 if (!bed.readyForBilling && !bed.billed) {
-                    alert("無法標記：護理端尚未確認可辦出院");
+                    // 如果是預出院，短按會提示可以使用長按加註
+                    if (bed.preDischarge) {
+                        alert("提示：對粉紅色卡片「長按」或「按右鍵」，可加註通知病人前往護理站。");
+                    } else {
+                        alert("無法標記：護理端尚未確認可辦出院");
+                    }
                     return;
                 }
                 updates[`/beds/${bed.id}/billed`] = !bed.billed;
@@ -457,9 +466,15 @@
         }
 
         function handleLongPress(bed) {
-            if (currentRole !== 'nursing') return;
             if (navigator.vibrate) navigator.vibrate(50);
-            openReasonModal(bed);
+            
+            if (currentRole === 'nursing') {
+                openReasonModal(bed);
+            } else if (currentRole === 'clerk') {
+                if (bed.preDischarge && !bed.readyForBilling && !bed.billed) {
+                    toggleClerkNote(bed);
+                }
+            }
         }
 
         window.openReasonModal = function(bed) {
@@ -569,6 +584,7 @@
                 updates[`/beds/${bed.id}/billed`] = false;
                 updates[`/beds/${bed.id}/delayed`] = false;
                 updates[`/beds/${bed.id}/delayReason`] = "";
+                updates[`/beds/${bed.id}/showClerkNote`] = false; // 清除備註
             });
             update(ref(db), updates);
         }
@@ -579,7 +595,7 @@
             if (!id) return;
             const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
             set(ref(db, 'beds/' + id), { 
-                type: 'bed', preDischarge: false, readyForBilling: false, billed: false, delayed: false, delayReason: "", index: maxIndex + 1 
+                type: 'bed', preDischarge: false, readyForBilling: false, billed: false, delayed: false, delayReason: "", showClerkNote: false, index: maxIndex + 1 
             });
             input.value = ''; input.focus(); 
         }
