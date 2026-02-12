@@ -1,127 +1,19 @@
-<!DOCTYPE html>
-<html lang="zh-TW">
-<head>
-    <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>護理看板系統 V21</title>
-    <script src="https://cdn.tailwindcss.com"></script>
-    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
-    <style>
-        body { user-select: none; touch-action: manipulation; }
-        .status-normal      { background-color: #ffffff; color: #374151; border: 2px solid #e5e7eb; }
-        .status-pre-discharge { background-color: #fff1f2; color: #9d174d; border: 2px solid #be185d; }
-        .status-ready       { background-color: #f0fdf4; color: #166534; border: 2px solid #15803d; }
-        .status-billed      { background-color: #fff7ed; color: #9a3412; border: 2px solid #ea580c; }
-        .status-delayed     { background-color: #eff6ff; color: #1e40af; border: 2px solid #3b82f6; }
-
-        .bed-card { transition: transform 0.1s; cursor: pointer; position: relative; }
-        .bed-card:active { transform: scale(0.96); }
-
-        .group-container { min-height: 80px; background: rgba(255,255,255,0.4); border: 2px dashed #cbd5e1; border-radius: 0.75rem; padding: 0.5rem; }
-        .sortable-ghost { opacity: 0.2; background: #e5e7eb !important; }
-
-        @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        @keyframes fadeOut { to { transform: translateX(100%); opacity: 0; } }
-        .toast-animate-in { animation: slideIn 0.3s ease-out forwards; }
-        .toast-animate-out { animation: fadeOut 0.3s ease-in forwards; }
-
-        .modal-overlay { background-color: rgba(0,0,0,.5); backdrop-filter: blur(2px); }
-    </style>
-</head>
-<body class="bg-gray-100 p-2 sm:p-4 min-h-screen">
-
-    <div id="toast-container" class="fixed bottom-4 right-4 z-[110] flex flex-col gap-2 w-full max-w-sm px-4"></div>
-
-    <div id="modal-container" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay">
-        <div class="bg-white rounded-xl shadow-2xl w-11/12 max-w-sm p-4 transform transition-all">
-            <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-3 text-center border-b pb-2">標題</h3>
-            <div id="modal-content" class="space-y-2 max-h-[60vh] overflow-y-auto p-1 text-sm"></div>
-            <div class="mt-4 pt-2 border-t flex gap-2">
-                <button id="modal-close-btn" class="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg font-bold">關閉</button>
-            </div>
-        </div>
-    </div>
-
-    <div class="max-w-7xl mx-auto">
-        <div class="mb-4 flex flex-col sm:flex-row justify-between items-center bg-white p-3 rounded-lg shadow-sm gap-3">
-            <h1 class="text-lg font-bold text-gray-800 flex items-center gap-2">🏥 護理看板</h1>
-            
-            <div class="flex flex-wrap items-center gap-2 justify-end">
-                <div class="flex bg-gray-100 p-1 rounded-lg shrink-0">
-                    <button id="btn-control" class="px-3 py-1 rounded text-xs font-bold transition">控制</button>
-                    <button id="btn-nursing" class="px-3 py-1 rounded text-xs font-bold transition">護理</button>
-                    <button id="btn-clerk"   class="px-3 py-1 rounded text-xs font-bold transition">書記</button>
-                </div>
-                <select id="select-my-group" class="hidden border rounded p-1 text-xs font-bold bg-green-50"></select>
-                <button id="btn-notify-toggle" class="px-3 py-1 rounded bg-gray-200 text-gray-500 font-bold text-xs">🔕 靜音</button>
-            </div>
-        </div>
-
-        <div id="admin-panel" class="mb-4 bg-blue-50 p-3 rounded-lg border border-blue-100 hidden space-y-3">
-            <div class="flex flex-wrap gap-2 items-center">
-                <button id="btn-edit-mode" class="bg-gray-500 text-white px-3 py-1.5 rounded font-bold text-xs">🔒 鎖定中</button>
-                <div id="edit-tools" class="hidden flex gap-2">
-                    <input type="text" id="new-bed-id" placeholder="床號" class="border p-1 w-16 text-center rounded text-xs">
-                    <button id="btn-add-bed" class="bg-blue-600 text-white px-3 py-1.5 rounded font-bold text-xs">＋新增床位</button>
-                    <button id="btn-manage-groups" class="bg-indigo-600 text-white px-3 py-1.5 rounded font-bold text-xs">⚙️ 組別管理</button>
-                </div>
-                <button id="btn-clear-all" class="bg-red-100 text-red-600 border border-red-300 px-3 py-1.5 rounded font-bold text-xs ml-auto">♻️ 清除狀態</button>
-            </div>
-        </div>
-
-        <div id="dashboard-content" class="space-y-6 pb-20"></div>
-    </div>
-
-<script type="module">
-import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, push, update, remove } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
-
-const firebaseConfig = {
-    apiKey: "AIzaSyDmuMbCIPPZZlxxpYKiruDEdspUDtSWYjM",
-    authDomain: "discharge-86653.firebaseapp.com",
-    databaseURL: "https://discharge-86653-default-rtdb.firebaseio.com",
-    projectId: "discharge-86653",
-    appId: "1:558090656575:web:eeadf5009dfc90bf86d18a"
-};
-const app = initializeApp(firebaseConfig);
-const db  = getDatabase(app);
-
-// --- 狀態變數 ---
-let currentRole = 'control';
-let isEditMode = false;
-let isNotifyEnabled = false;
-let localBeds = [];
-let localMessages = {};
-let localGroups = [];
-let myGroupFilter = 'all';
-
-// --- 資料監聽 ---
-onValue(ref(db, 'groups'), (snap) => {
-    const data = snap.val() || { "none": "未分組" };
-    localGroups = Object.keys(data).map(id => ({ id, name: data[id] }));
-    updateGroupSelector();
-    renderDashboard();
-});
-
-onValue(ref(db, 'beds'), (snap) => {
-    const data = snap.val() || {};
-    localBeds = Object.keys(data).map(id => ({ id, ...data[id] }))
-                .sort((a,b) => (a.index || 0) - (b.index || 0));
-    renderDashboard();
-});
-
-onValue(ref(db, 'messages'), (snap) => {
-    const data = snap.val() || {};
-    checkNewMessages(data);
-    localMessages = data;
-    renderDashboard();
-});
-
-// --- 介面渲染 ---
 function renderDashboard() {
     const container = document.getElementById('dashboard-content');
     container.innerHTML = '';
 
+    // 1. 確保所有床位都有地方放：先建立一個包含所有「現存組別」的清單
+    const activeGroupIds = localGroups.map(g => g.id);
+    
+    // 2. 找出那些「組別已被刪除」或「歸屬不明」的孤兒床位
+    const orphanBeds = localBeds.filter(b => !activeGroupIds.includes(b.group || 'none'));
+    
+    // 3. 如果有孤兒床位，強制將其導向「未分組」以防止消失
+    orphanBeds.forEach(bed => {
+        update(ref(db, `beds/${bed.id}`), { group: 'none' });
+    });
+
+    // 4. 開始渲染組別區域
     localGroups.forEach(group => {
         if (currentRole === 'nursing' && myGroupFilter !== 'all' && myGroupFilter !== group.id) return;
 
@@ -136,6 +28,7 @@ function renderDashboard() {
         container.appendChild(section);
 
         const grid = section.querySelector(`#grid-${group.id}`);
+        // 抓取屬於此組別的床位
         const bedsInGroup = localBeds.filter(b => (b.group || 'none') === group.id);
 
         bedsInGroup.forEach(bed => {
@@ -143,9 +36,11 @@ function renderDashboard() {
             grid.appendChild(card);
         });
 
+        // 僅控制端可排序
         if (currentRole === 'control' && isEditMode) {
             new Sortable(grid, {
-                group: 'shared-beds', animation: 150,
+                group: 'shared-beds', 
+                animation: 150,
                 onEnd: (evt) => {
                     const bedId = evt.item.getAttribute('data-id');
                     const targetGroup = evt.to.getAttribute('data-group');
@@ -156,224 +51,3 @@ function renderDashboard() {
         }
     });
 }
-
-function createBedCard(bed) {
-    const div = document.createElement('div');
-    div.setAttribute('data-id', bed.id);
-    div.className = `bed-card flex flex-col items-center justify-center rounded-xl p-2 min-h-[5.5rem] ${getStatusClass(bed)}`;
-    
-    const msgCount = localMessages[bed.id] ? Object.keys(localMessages[bed.id]).length : 0;
-    
-    let innerHTML = `<span class="text-xl font-bold">${bed.id}</span>`;
-    
-    // 留言氣泡
-    if (msgCount > 0) {
-        innerHTML += `<div class="msg-trigger absolute -top-2 -right-2 bg-red-500 text-white text-[10px] font-bold rounded-full w-6 h-6 flex items-center justify-center border-2 border-white shadow-md z-10 animate-bounce">${msgCount}</div>`;
-    }
-
-    // 編輯模式下的刪除按鈕
-    if (isEditMode && currentRole === 'control') {
-        innerHTML += `<button class="delete-bed-btn absolute -bottom-1 -right-1 bg-gray-800 text-white rounded-full w-5 h-5 text-xs flex items-center justify-center">✕</button>`;
-    }
-
-    // 狀態標籤
-    if (bed.billed) innerHTML += '<span class="text-[10px] bg-orange-600 text-white px-2 rounded-full mt-1">已辦</span>';
-    else if (bed.delayed) innerHTML += `<span class="text-[10px] bg-blue-600 text-white px-2 rounded-full mt-1 truncate w-full text-center px-1">${bed.delayReason || '延遲'}</span>`;
-    else if (bed.readyForBilling) innerHTML += '<span class="text-[10px] bg-green-600 text-white px-2 rounded-full mt-1">可辦</span>';
-    else if (bed.preDischarge) innerHTML += '<span class="text-[10px] bg-pink-600 text-white px-2 rounded-full mt-1">預出</span>';
-
-    div.innerHTML = innerHTML;
-
-    div.onclick = (e) => {
-        if (e.target.classList.contains('msg-trigger')) return openMessageModal(bed.id);
-        if (e.target.classList.contains('delete-bed-btn')) return deleteBed(bed.id);
-        handleBedClick(bed);
-    };
-    return div;
-}
-
-// --- 組別管理功能 ---
-function openGroupManager() {
-    const content = document.getElementById('modal-content');
-    document.getElementById('modal-title').innerText = "⚙️ 組別與名稱管理";
-    
-    let html = `
-        <div class="space-y-2 mb-4">
-            <div class="flex gap-2">
-                <input id="new-group-name" class="flex-1 border p-2 rounded" placeholder="新組別名稱">
-                <button id="btn-add-group" class="bg-green-600 text-white px-3 py-1 rounded font-bold">新增</button>
-            </div>
-        </div>
-        <div class="space-y-2">`;
-    
-    localGroups.forEach(g => {
-        if (g.id === 'none') {
-            html += `<div class="flex items-center gap-2 p-2 bg-gray-50 rounded border">
-                        <span class="flex-1 font-bold text-gray-400">${g.name} (系統預設)</span>
-                     </div>`;
-        } else {
-            html += `<div class="flex items-center gap-2 p-2 bg-white rounded border shadow-sm">
-                        <input class="flex-1 font-bold group-edit-input p-1" data-id="${g.id}" value="${g.name}">
-                        <button class="text-red-500 p-1 group-del-btn" data-id="${g.id}">🗑️</button>
-                     </div>`;
-        }
-    });
-    html += `</div><p class="text-[10px] text-gray-400 mt-2">* 刪除組別前，請確保該組內已無床位</p>`;
-    content.innerHTML = html;
-
-    // 事件：新增
-    document.getElementById('btn-add-group').onclick = () => {
-        const name = document.getElementById('new-group-name').value.trim();
-        if (name) {
-            const newId = 'group_' + Date.now();
-            set(ref(db, `groups/${newId}`), name);
-            openGroupManager();
-        }
-    };
-
-    // 事件：編輯與刪除
-    content.querySelectorAll('.group-edit-input').forEach(input => {
-        input.onchange = (e) => set(ref(db, `groups/${e.target.dataset.id}`), e.target.value);
-    });
-    content.querySelectorAll('.group-del-btn').forEach(btn => {
-        btn.onclick = (e) => {
-            const id = e.target.dataset.id;
-            const hasBeds = localBeds.some(b => b.group === id);
-            if (hasBeds) return alert('此組別內還有床位，請先將床位移至其他組別。');
-            remove(ref(db, `groups/${id}`));
-            openGroupManager();
-        };
-    });
-    showModal();
-}
-
-// --- 床位管理 ---
-function deleteBed(id) {
-    if (confirm(`確定要刪除 ${id} 床嗎？所有狀態與留言將被移除。`)) {
-        remove(ref(db, `beds/${id}`));
-        remove(ref(db, `messages/${id}`));
-    }
-}
-
-function updateGroupSelector() {
-    const sel = document.getElementById('select-my-group');
-    sel.innerHTML = '<option value="all">顯示全部組別</option>';
-    localGroups.forEach(g => {
-        sel.innerHTML += `<option value="${g.id}">${g.name}</option>`;
-    });
-    sel.value = myGroupFilter;
-}
-
-// --- 留言與通知 (承襲前版本邏輯) ---
-function openMessageModal(bedId) {
-    const modalContent = document.getElementById('modal-content');
-    document.getElementById('modal-title').innerText = `${bedId} 床留言板`;
-    const msgs = localMessages[bedId] || {};
-    let html = '<div class="space-y-2 mb-4 max-h-40 overflow-y-auto bg-gray-50 p-2 rounded">';
-    Object.keys(msgs).forEach(key => {
-        html += `<div class="border-b pb-1"><span class="text-[10px] font-bold text-blue-600">[${msgs[key].sender}]</span> ${msgs[key].text}</div>`;
-    });
-    html += (Object.keys(msgs).length === 0 ? '<div class="text-center text-gray-400 py-4">尚無留言</div>' : '') + '</div>';
-    modalContent.innerHTML = html + `<div class="flex gap-2"><input id="input-new-msg" class="flex-1 border p-2 rounded text-xs" placeholder="輸入訊息..."><button id="btn-submit-msg" class="bg-blue-600 text-white px-3 py-1 rounded font-bold">送出</button></div>`;
-    document.getElementById('btn-submit-msg').onclick = () => {
-        const text = document.getElementById('input-new-msg').value;
-        if (text) {
-            push(ref(db, `messages/${bedId}`), { text, sender: currentRole, time: Date.now() });
-            openMessageModal(bedId);
-        }
-    };
-    showModal();
-}
-
-function checkNewMessages(newData) {
-    if (!isNotifyEnabled) return;
-    Object.keys(newData).forEach(bedId => {
-        if (Object.keys(newData[bedId] || {}).length > Object.keys(localMessages[bedId] || {}).length) {
-            const bed = localBeds.find(b => b.id === bedId);
-            if (myGroupFilter === 'all' || (bed && bed.group === myGroupFilter)) {
-                const latest = Object.values(newData[bedId]).pop();
-                showMsgToast(bedId, latest.text);
-            }
-        }
-    });
-}
-
-function showMsgToast(bedId, text) {
-    const container = document.getElementById('toast-container');
-    const toast = document.createElement('div');
-    toast.className = 'toast-animate-in bg-blue-800 text-white p-3 rounded-lg shadow-xl border-l-4 border-yellow-400 mb-2';
-    toast.innerHTML = `<div class="text-[10px] font-bold text-yellow-400">新留言通知</div><div class="text-sm font-bold">${bedId} 床：${text}</div>`;
-    container.appendChild(toast);
-    setTimeout(() => {
-        toast.classList.replace('toast-animate-in', 'toast-animate-out');
-        setTimeout(() => toast.remove(), 300);
-    }, 3000);
-}
-
-// --- 基礎互動 ---
-function handleBedClick(bed) {
-    if (isEditMode) return;
-    const path = `beds/${bed.id}`;
-    if (currentRole === 'control') update(ref(db, path), { preDischarge: !bed.preDischarge });
-    else if (currentRole === 'nursing') update(ref(db, path), { readyForBilling: !bed.readyForBilling });
-    else if (currentRole === 'clerk' && (bed.readyForBilling || bed.billed)) update(ref(db, path), { billed: !bed.billed });
-}
-
-function setRole(role) {
-    currentRole = role;
-    const colors = { control: 'blue', nursing: 'green', clerk: 'orange' };
-    ['control', 'nursing', 'clerk'].forEach(r => {
-        document.getElementById(`btn-${r}`).className = `px-3 py-1 rounded text-xs font-bold transition ${r === role ? 'bg-'+colors[r]+'-500 text-white' : 'bg-white text-gray-500'}`;
-    });
-    document.getElementById('admin-panel').classList.toggle('hidden', role !== 'control');
-    document.getElementById('select-my-group').classList.toggle('hidden', role !== 'nursing');
-    renderDashboard();
-}
-
-function saveOrder() {
-    const updates = {};
-    document.querySelectorAll('.bed-card').forEach((el, i) => updates[`beds/${el.dataset.id}/index`] = i);
-    update(ref(db), updates);
-}
-
-function getStatusClass(bed) {
-    if (bed.billed) return 'status-billed';
-    if (bed.delayed) return 'status-delayed';
-    if (bed.readyForBilling) return 'status-ready';
-    if (bed.preDischarge) return 'status-pre-discharge';
-    return 'status-normal';
-}
-
-function showModal() { document.getElementById('modal-container').classList.remove('hidden'); document.getElementById('modal-container').classList.add('flex'); }
-function closeModal() { document.getElementById('modal-container').classList.add('hidden'); document.getElementById('modal-container').classList.remove('flex'); }
-
-// --- 事件綁定 ---
-document.getElementById('btn-control').onclick = () => setRole('control');
-document.getElementById('btn-nursing').onclick = () => setRole('nursing');
-document.getElementById('btn-clerk').onclick = () => setRole('clerk');
-document.getElementById('modal-close-btn').onclick = closeModal;
-document.getElementById('select-my-group').onchange = (e) => { myGroupFilter = e.target.value; renderDashboard(); };
-document.getElementById('btn-manage-groups').onclick = openGroupManager;
-document.getElementById('btn-add-bed').onclick = () => {
-    const id = document.getElementById('new-bed-id').value.trim();
-    if (id) {
-        set(ref(db, `beds/${id}`), { index: localBeds.length, group: 'none' });
-        document.getElementById('new-bed-id').value = '';
-    }
-};
-document.getElementById('btn-edit-mode').onclick = () => {
-    isEditMode = !isEditMode;
-    document.getElementById('btn-edit-mode').innerText = isEditMode ? '🔓 編輯中' : '🔒 鎖定排序';
-    document.getElementById('edit-tools').classList.toggle('hidden', !isEditMode);
-    renderDashboard();
-};
-document.getElementById('btn-notify-toggle').onclick = () => {
-    isNotifyEnabled = !isNotifyEnabled;
-    document.getElementById('btn-notify-toggle').innerText = isNotifyEnabled ? '🔔 通知開' : '🔕 靜音';
-    document.getElementById('btn-notify-toggle').classList.toggle('bg-green-100', isNotifyEnabled);
-};
-
-setRole('control');
-</script>
-</body>
-</html>
