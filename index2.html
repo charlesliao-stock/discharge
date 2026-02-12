@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>護理看板系統 V22</title>
+    <title>護理看板系統 V23</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -45,7 +45,6 @@
     <div class="max-w-7xl mx-auto">
         <div class="mb-4 flex flex-col sm:flex-row justify-between items-center bg-white p-3 rounded-lg shadow-sm gap-3">
             <h1 class="text-lg font-bold text-gray-800 flex items-center gap-2">🏥 護理看板</h1>
-            
             <div class="flex flex-wrap items-center gap-2 justify-end">
                 <div class="flex bg-gray-100 p-1 rounded-lg shrink-0">
                     <button id="btn-control" class="px-3 py-1 rounded text-xs font-bold transition">控制</button>
@@ -91,13 +90,18 @@ let isEditMode = false;
 let isNotifyEnabled = false;
 let localBeds = [];
 let localMessages = {};
-let localGroups = [];
+let localGroups = []; // 包含 {id, name}
 let myGroupFilter = 'all';
 
 // --- 資料監聽 ---
 onValue(ref(db, 'groups'), (snap) => {
-    const data = snap.val() || { "none": "未分組" };
-    localGroups = Object.keys(data).map(id => ({ id, name: data[id] }));
+    const data = snap.val() || {};
+    // 強制補上「未分組」，且確保它在最前面
+    const groupsArray = [{ id: 'none', name: '未分組' }];
+    Object.keys(data).forEach(id => {
+        if (id !== 'none') groupsArray.push({ id, name: data[id] });
+    });
+    localGroups = groupsArray;
     updateGroupSelector();
     renderDashboard();
 });
@@ -116,22 +120,16 @@ onValue(ref(db, 'messages'), (snap) => {
     renderDashboard();
 });
 
-// --- 核心渲染 ---
+// --- 核心渲染修正 ---
 function renderDashboard() {
     const container = document.getElementById('dashboard-content');
     container.innerHTML = '';
 
-    // 取得所有現存的組別 ID 清單
     const activeGroupIds = localGroups.map(g => g.id);
     
-    // 安全機制：找出「組別不存在」的床位，強制歸類至「none」
-    localBeds.forEach(bed => {
-        if (!activeGroupIds.includes(bed.group || 'none')) {
-            update(ref(db, `beds/${bed.id}`), { group: 'none' });
-        }
-    });
-
+    // 渲染各個組別區塊
     localGroups.forEach(group => {
+        // 護理端過濾邏輯
         if (currentRole === 'nursing' && myGroupFilter !== 'all' && myGroupFilter !== group.id) return;
 
         const section = document.createElement('div');
@@ -145,11 +143,18 @@ function renderDashboard() {
         container.appendChild(section);
 
         const grid = section.querySelector(`#grid-${group.id}`);
-        const bedsInGroup = localBeds.filter(b => (b.group || 'none') === group.id);
+        
+        // 篩選床位：如果床位的組別 ID 不存在於目前組別清單中，則歸類到 none
+        const bedsInGroup = localBeds.filter(bed => {
+            const gId = bed.group || 'none';
+            if (group.id === 'none') {
+                return gId === 'none' || !activeGroupIds.includes(gId);
+            }
+            return gId === group.id;
+        });
 
         bedsInGroup.forEach(bed => {
-            const card = createBedCard(bed);
-            grid.appendChild(card);
+            grid.appendChild(createBedCard(bed));
         });
 
         if (currentRole === 'control' && isEditMode) {
@@ -197,7 +202,7 @@ function createBedCard(bed) {
     return div;
 }
 
-// --- 組別管理功能 ---
+// --- 組別管理 ---
 function openGroupManager() {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').innerText = "⚙️ 組別編輯";
@@ -213,7 +218,7 @@ function openGroupManager() {
     
     localGroups.forEach(g => {
         if (g.id === 'none') {
-            html += `<div class="flex items-center gap-2 p-2 bg-gray-50 rounded border"><span class="flex-1 font-bold text-gray-400">${g.name} (系統預設)</span></div>`;
+            html += `<div class="flex items-center gap-2 p-2 bg-gray-50 rounded border"><span class="flex-1 font-bold text-gray-400">未分組 (系統固定)</span></div>`;
         } else {
             html += `
                 <div class="flex items-center gap-2 p-2 bg-white rounded border shadow-sm">
@@ -236,7 +241,7 @@ function openGroupManager() {
     });
     content.querySelectorAll('.group-del-btn').forEach(btn => {
         btn.onclick = (e) => {
-            if (confirm('確定刪除此組別？組內床位將自動移至「未分組」。')) {
+            if (confirm('確定刪除？組內床位將自動回到「未分組」。')) {
                 remove(ref(db, `groups/${e.target.dataset.id}`));
                 openGroupManager();
             }
@@ -296,7 +301,7 @@ function showMsgToast(bedId, text) {
     const container = document.getElementById('toast-container');
     const toast = document.createElement('div');
     toast.className = 'toast-animate-in bg-blue-800 text-white p-3 rounded-lg shadow-xl border-l-4 border-yellow-400 mb-2';
-    toast.innerHTML = `<div class="text-[10px] font-bold text-yellow-400">新留言通知</div><div class="text-sm font-bold">${bedId} 床：${text}</div>`;
+    toast.innerHTML = `<div class="text-[10px] font-bold text-yellow-400">新留言</div><div class="text-sm font-bold">${bedId}：${text}</div>`;
     container.appendChild(toast);
     setTimeout(() => { toast.classList.replace('toast-animate-in', 'toast-animate-out'); setTimeout(() => toast.remove(), 300); }, 3000);
 }
