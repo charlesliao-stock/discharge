@@ -3,21 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>病房出院即時看板 (V19-書記通知版)</title>
+    <title>病房出院即時看板 (V20)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
-        body { user-select: none; -webkit-user-select: none; -webkit-touch-callout: none; }
-        
-        .status-normal { background-color: #ffffff; color: #374151; border: 2px solid #e5e7eb; }
+        /* [精簡] user-select 只需一行，現代瀏覽器已全面支援 */
+        body { user-select: none; touch-action: manipulation; }
+
+        .status-normal      { background-color: #ffffff; color: #374151; border: 2px solid #e5e7eb; }
         .status-pre-discharge { background-color: #fff1f2; color: #9d174d; border: 2px solid #be185d; }
-        .status-ready { background-color: #f0fdf4; color: #166534; border: 2px solid #15803d; }
-        .status-billed { background-color: #fff7ed; color: #9a3412; border: 2px solid #ea580c; }
-        .status-delayed { background-color: #eff6ff; color: #1e40af; border: 2px solid #3b82f6; }
-        
+        .status-ready       { background-color: #f0fdf4; color: #166534; border: 2px solid #15803d; }
+        .status-billed      { background-color: #fff7ed; color: #9a3412; border: 2px solid #ea580c; }
+        .status-delayed     { background-color: #eff6ff; color: #1e40af; border: 2px solid #3b82f6; }
+
         .bed-card {
-            transition: transform 0.1s, background-color 0.1s, border-color 0.1s; 
-            cursor: pointer; touch-action: none; -webkit-user-drag: none; box-sizing: border-box;
+            transition: transform 0.1s, background-color 0.1s, border-color 0.1s;
+            cursor: pointer;
+            touch-action: none;
+            -webkit-user-drag: none;
+            box-sizing: border-box;
             position: relative;
         }
         .bed-card:active { transform: scale(0.96); }
@@ -29,97 +33,91 @@
         }
 
         .sortable-ghost { opacity: 0.2 !important; background: #e5e7eb !important; border: 2px dashed #9ca3af !important; }
-        .sortable-drag { cursor: grabbing; opacity: 1 !important; background: #ffffff; box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.25); transform: scale(1.05); z-index: 9999 !important; }
-        
-        .cursor-locked { cursor: default !important; }
+        .sortable-drag  { cursor: grabbing; opacity: 1 !important; background: #ffffff; box-shadow: 0 10px 15px -3px rgba(0,0,0,.25); transform: scale(1.05); z-index: 9999 !important; }
+        .cursor-locked  { cursor: default !important; }
 
         @keyframes slideIn { from { transform: translateX(100%); opacity: 0; } to { transform: translateX(0); opacity: 1; } }
-        @keyframes fadeOut { to { transform: translateX(100%); opacity: 0; } }
-        .toast-animate-in { animation: slideIn 0.3s ease-out forwards; }
-        .toast-animate-out { animation: fadeOut 0.3s ease-in forwards; }
+        @keyframes fadeOut { to   { transform: translateX(100%); opacity: 0; } }
+        .toast-animate-in  { animation: slideIn 0.3s ease-out forwards; }
+        .toast-animate-out { animation: fadeOut 0.3s ease-in  forwards; }
         .toast-card { cursor: pointer; transition: transform 0.1s; }
-        
-        .modal-overlay { background-color: rgba(0, 0, 0, 0.5); backdrop-filter: blur(2px); }
+
+        .modal-overlay { background-color: rgba(0,0,0,.5); backdrop-filter: blur(2px); }
         .no-scrollbar::-webkit-scrollbar { display: none; }
         .no-scrollbar { -ms-overflow-style: none; scrollbar-width: none; }
+
+        /* [新增] counter 動畫用 CSS class 取代 JS inline，避免 race condition */
+        @keyframes popBadge { 0%,100% { transform: scale(1); } 50% { transform: scale(1.15); } }
+        .badge-pop { animation: popBadge 0.2s ease; }
     </style>
 </head>
 <body class="bg-gray-100 p-2 sm:p-4 min-h-screen">
 
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm px-4 sm:px-0"></div>
 
+    <!-- Modal 統一用於所有互動選擇，取代原生 confirm/alert -->
     <div id="modal-container" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay">
         <div class="bg-white rounded-xl shadow-2xl w-11/12 max-w-sm p-4 transform transition-all scale-100">
             <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-3 text-center border-b pb-2">選單</h3>
-            <div id="modal-content" class="space-y-2 max-h-[50vh] overflow-y-auto p-1 custom-scrollbar"></div>
+            <div id="modal-content" class="space-y-2 max-h-[50vh] overflow-y-auto p-1"></div>
             <div class="mt-4 pt-2 border-t flex justify-center">
-                <button onclick="closeModal()" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition">關閉</button>
+                <button id="modal-close-btn" class="w-full py-2 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition">關閉</button>
             </div>
         </div>
     </div>
 
     <div class="max-w-7xl mx-auto">
+        <!-- 頂部控制列 -->
         <div class="mb-2 flex flex-col sm:flex-row justify-between items-center bg-white p-2 rounded-lg shadow-sm gap-2">
             <h1 class="text-base sm:text-lg font-bold text-gray-800 flex items-center gap-2 whitespace-nowrap">
-                🏥 看板 
+                🏥 看板
                 <span id="role-badge" class="text-xs px-2 py-1 rounded bg-blue-100 text-blue-800">控制端</span>
             </h1>
-            
+
             <div class="flex flex-col items-end gap-1 w-full sm:w-auto">
                 <div class="flex flex-nowrap overflow-x-auto no-scrollbar items-center gap-2 w-full sm:w-auto justify-end px-1">
                     <div class="flex bg-gray-100 p-1 rounded-lg shrink-0">
-                        <button onclick="setRole('control')" id="btn-control" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">控制</button>
-                        <button onclick="setRole('nursing')" id="btn-nursing" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">護理</button>
-                        <button onclick="setRole('clerk')" id="btn-clerk" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">書記</button>
+                        <button id="btn-control" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">控制</button>
+                        <button id="btn-nursing" class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">護理</button>
+                        <button id="btn-clerk"   class="px-3 py-1 rounded text-xs font-bold shadow transition whitespace-nowrap">書記</button>
                     </div>
-                    <button onclick="toggleNotify()" id="btn-notify-toggle" class="shrink-0 px-3 py-1 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition flex items-center gap-1 whitespace-nowrap">
+                    <button id="btn-notify-toggle" class="shrink-0 px-3 py-1 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition flex items-center gap-1 whitespace-nowrap">
                         🔕 靜音
                     </button>
                 </div>
 
                 <div class="flex flex-nowrap gap-2 text-[10px] sm:text-xs font-bold px-1 overflow-x-auto no-scrollbar w-full sm:w-auto justify-end">
-                    <div class="bg-pink-100 text-pink-700 px-2 py-0.5 rounded border border-pink-200 whitespace-nowrap flex items-center gap-1">
-                        <span class="w-2 h-2 rounded-full bg-pink-500"></span>
-                        預出: <span id="count-pre">0</span>
-                    </div>
-                    <div class="bg-green-100 text-green-700 px-2 py-0.5 rounded border border-green-200 whitespace-nowrap flex items-center gap-1">
-                        <span class="w-2 h-2 rounded-full bg-green-500"></span>
-                        可辦: <span id="count-ready">0</span>
-                    </div>
-                    <div class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded border border-orange-200 whitespace-nowrap flex items-center gap-1">
-                        <span class="w-2 h-2 rounded-full bg-orange-500"></span>
-                        已辦: <span id="count-billed">0</span>
-                    </div>
-                    <div class="bg-blue-50 text-blue-700 px-2 py-0.5 rounded border border-blue-200 whitespace-nowrap flex items-center gap-1">
-                        <span class="w-2 h-2 rounded-full bg-blue-500"></span>
-                        延遲: <span id="count-delayed">0</span>
-                    </div>
+                    <div id="badge-pre"     class="bg-pink-100   text-pink-700   px-2 py-0.5 rounded border border-pink-200   whitespace-nowrap flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-pink-500"></span>  預出: <span id="count-pre">0</span></div>
+                    <div id="badge-ready"   class="bg-green-100  text-green-700  px-2 py-0.5 rounded border border-green-200  whitespace-nowrap flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-green-500"></span> 可辦: <span id="count-ready">0</span></div>
+                    <div id="badge-billed"  class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded border border-orange-200 whitespace-nowrap flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-orange-500"></span>已辦: <span id="count-billed">0</span></div>
+                    <div id="badge-delayed" class="bg-blue-50    text-blue-700   px-2 py-0.5 rounded border border-blue-200   whitespace-nowrap flex items-center gap-1"><span class="w-2 h-2 rounded-full bg-blue-500"></span>  延遲: <span id="count-delayed">0</span></div>
                 </div>
             </div>
         </div>
 
+        <!-- 控制端面板 -->
         <div id="admin-panel" class="mb-2 bg-blue-50 p-2 rounded-lg border border-blue-100 shadow-sm hidden">
             <div class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar w-full">
                 <div class="flex items-center gap-2 shrink-0 border-r border-blue-200 pr-2 mr-1">
                     <span class="text-xl">⚙️</span>
-                    <button onclick="toggleEditMode()" id="btn-edit-mode" class="bg-gray-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap">
+                    <button id="btn-edit-mode" class="bg-gray-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap">
                         🔒 鎖定中
                     </button>
                 </div>
                 <div id="edit-tools" class="flex items-center gap-2 hidden shrink-0">
-                    <input type="text" id="new-bed-id" placeholder="床號" 
-                           class="border p-1.5 rounded w-16 text-center focus:ring-2 focus:ring-blue-400 outline-none text-xs"
-                           onkeydown="if(event.key === 'Enter') addBed()">
-                    <button onclick="addBed()" class="bg-blue-600 text-white px-3 py-1.5 rounded font-bold shadow text-xs whitespace-nowrap hover:bg-blue-700">新增</button>
-                    <button onclick="addSeparator()" class="bg-gray-500 text-white px-3 py-1.5 rounded font-bold shadow text-xs whitespace-nowrap hover:bg-gray-600">⬇️ 換行</button>
+                    <input type="text" id="new-bed-id" placeholder="床號"
+                           class="border p-1.5 rounded w-16 text-center focus:ring-2 focus:ring-blue-400 outline-none text-xs">
+                    <button id="btn-add-bed"  class="bg-blue-600 text-white px-3 py-1.5 rounded font-bold shadow text-xs whitespace-nowrap hover:bg-blue-700">新增</button>
+                    <button id="btn-add-sep"  class="bg-gray-500 text-white px-3 py-1.5 rounded font-bold shadow text-xs whitespace-nowrap hover:bg-gray-600">⬇️ 換行</button>
                 </div>
                 <div class="flex items-center gap-2 shrink-0">
-                     <button onclick="openReasonConfig()" class="bg-indigo-100 text-indigo-700 border border-indigo-300 px-3 py-1.5 rounded font-bold hover:bg-indigo-200 shadow text-xs whitespace-nowrap">📝 原因</button>
-                     <button onclick="clearAllStatuses()" class="bg-red-100 text-red-600 border border-red-300 px-3 py-1.5 rounded font-bold hover:bg-red-200 shadow text-xs whitespace-nowrap transition">♻️ 重置</button>
+                    <button id="btn-reason-config" class="bg-indigo-100 text-indigo-700 border border-indigo-300 px-3 py-1.5 rounded font-bold hover:bg-indigo-200 shadow text-xs whitespace-nowrap">📝 原因</button>
+                    <button id="btn-clear-all"     class="bg-red-100 text-red-600 border border-red-300 px-3 py-1.5 rounded font-bold hover:bg-red-200 shadow text-xs whitespace-nowrap transition">♻️ 重置</button>
                 </div>
             </div>
         </div>
 
+        <!-- 護理端面板 -->
         <div id="nursing-panel" class="mb-2 bg-green-50 p-2 rounded-lg border border-green-100 shadow-sm hidden">
             <div class="flex items-center gap-2">
                 <span class="text-xl">👩‍⚕️</span>
@@ -129,6 +127,7 @@
             </div>
         </div>
 
+        <!-- 書記端面板 -->
         <div id="clerk-panel" class="mb-2 bg-orange-50 p-2 rounded-lg border border-orange-100 shadow-sm hidden">
             <div class="flex items-center gap-2">
                 <span class="text-xl">📝</span>
@@ -143,506 +142,628 @@
         </div>
     </div>
 
-    <script type="module">
-        import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-        import { getDatabase, ref, set, onValue, remove, update, get } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
+<script type="module">
+import { initializeApp }  from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { getDatabase, ref, set, onValue, remove, update } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-        const firebaseConfig = {
-            apiKey: "AIzaSyDmuMbCIPPZZlxxpYKiruDEdspUDtSWYjM",
-            authDomain: "discharge-86653.firebaseapp.com",
-            databaseURL: "https://discharge-86653-default-rtdb.firebaseio.com",
-            projectId: "discharge-86653",
-            storageBucket: "discharge-86653.firebasestorage.app",
-            messagingSenderId: "558090656575",
-            appId: "1:558090656575:web:eeadf5009dfc90bf86d18a",
-            measurementId: "G-5QXDZJ0T1S"
-        };
+// ─── Firebase 初始化 ──────────────────────────────────────────
+const firebaseConfig = {
+    apiKey: "AIzaSyDmuMbCIPPZZlxxpYKiruDEdspUDtSWYjM",
+    authDomain: "discharge-86653.firebaseapp.com",
+    databaseURL: "https://discharge-86653-default-rtdb.firebaseio.com",
+    projectId: "discharge-86653",
+    storageBucket: "discharge-86653.firebasestorage.app",
+    messagingSenderId: "558090656575",
+    appId: "1:558090656575:web:eeadf5009dfc90bf86d18a",
+    measurementId: "G-5QXDZJ0T1S"
+};
+const app = initializeApp(firebaseConfig);
+const db  = getDatabase(app);
 
-        const app = initializeApp(firebaseConfig);
-        const db = getDatabase(app);
+// ─── 狀態 ────────────────────────────────────────────────────
+let currentRole    = 'control';
+let sortableInstance = null;
+let localBedList   = [];          // 唯一資料來源，避免重複讀 DB
+let isDragging     = false;
+let lastBedStates  = {};          // 用於通知 diff
+let isNotifyEnabled = false;
+let isFlashing     = false;
+let flashInterval  = null;
+let isEditMode     = false;
+let reasonList     = [];
+const originalTitle = document.title;
 
-        let currentRole = 'control'; 
-        let sortableInstance = null;
-        let localBedList = [];
-        let isDragging = false; 
-        let lastBedStates = {}; 
-        let isFirstLoad = true;
-        let isNotifyEnabled = false; 
-        let flashInterval = null;
-        const originalTitle = document.title;
-        let isFlashing = false;
-        let isEditMode = false;
+const defaultReasons = ["等待家屬", "等待檢查報告", "帳務問題", "病情變化", "等待救護車", "其他"];
 
-        const defaultReasons = ["等待家屬", "等待檢查報告", "帳務問題", "病情變化", "等待救護車", "其他"];
+// ─── 資料快照序列化（用於 dirty-check，避免不必要重繪）────────
+// [優化] 用輕量字串比對，只有資料真正改變才重繪 DOM
+let lastRenderKey = '';
+function buildRenderKey(list) {
+    return list.map(b =>
+        `${b.id}:${b.type||''}:${b.preDischarge?1:0}:${b.readyForBilling?1:0}:${b.billed?1:0}:${b.delayed?1:0}:${b.delayReason||''}:${b.showClerkNote?1:0}:${b.index}`
+    ).join('|');
+}
 
-        const bedsRef = ref(db, 'beds');
-        onValue(bedsRef, (snapshot) => {
-            if (isDragging) return;
-            const data = snapshot.val() || {};
-            
-            localBedList = Object.keys(data).map(key => ({
-                id: key,
-                ...data[key],
-                preDischarge: !!data[key].preDischarge,
-                readyForBilling: !!data[key].readyForBilling,
-                billed: !!data[key].billed,
-                delayed: !!data[key].delayed, 
-                delayReason: data[key].delayReason || "", 
-                showClerkNote: !!data[key].showClerkNote, // 新增：書記備註
-                index: data[key].index !== undefined ? Number(data[key].index) : 9999
-            })).sort((a, b) => {
-                if (a.index !== b.index) return a.index - b.index;
-                return a.id.localeCompare(b.id, undefined, { numeric: true });
-            });
-            
-            updateCounts(localBedList);
-            checkAndNotify(localBedList); 
-            renderGrid();
-        });
+// ─── Firebase 監聽：beds ──────────────────────────────────────
+// [優化] onValue 只在資料真正改變時才重繪，減少不必要 DOM 操作
+const bedsRef = ref(db, 'beds');
+onValue(bedsRef, (snapshot) => {
+    if (isDragging) return;  // 拖曳中略過，等放開後 saveNewOrder() 會觸發
 
-        function updateCounts(beds) {
-            let preCount = 0;
-            let readyCount = 0;
-            let billedCount = 0;
-            let delayedCount = 0;
+    const data = snapshot.val() || {};
 
-            beds.forEach(bed => {
-                if (bed.type === 'separator') return;
-                if (bed.billed) billedCount++;
-                else if (bed.delayed) delayedCount++;
-                else if (bed.readyForBilling) readyCount++;
-                else if (bed.preDischarge) preCount++;
-            });
+    const newList = Object.keys(data).map(key => ({
+        id: key,
+        ...data[key],
+        preDischarge:    !!data[key].preDischarge,
+        readyForBilling: !!data[key].readyForBilling,
+        billed:          !!data[key].billed,
+        delayed:         !!data[key].delayed,
+        delayReason:     data[key].delayReason  || '',
+        showClerkNote:   !!data[key].showClerkNote,
+        index:           data[key].index !== undefined ? Number(data[key].index) : 9999
+    })).sort((a, b) => {
+        if (a.index !== b.index) return a.index - b.index;
+        return a.id.localeCompare(b.id, undefined, { numeric: true });
+    });
 
-            updateCounterElement('count-pre', preCount);
-            updateCounterElement('count-ready', readyCount);
-            updateCounterElement('count-billed', billedCount);
-            updateCounterElement('count-delayed', delayedCount);
+    // [優化] dirty-check：key 相同表示資料未變，不重繪
+    const newKey = buildRenderKey(newList);
+    const dataChanged = newKey !== lastRenderKey;
+    lastRenderKey = newKey;
+
+    localBedList = newList;
+    updateCounts(localBedList);
+    checkAndNotify(localBedList);
+    if (dataChanged) renderGrid();
+});
+
+// ─── Firebase 監聽：reasons ───────────────────────────────────
+// [優化] reasons 只在首次或真正變更時才初始化，不觸發重繪
+const reasonsRef = ref(db, 'reasons');
+onValue(reasonsRef, (snapshot) => {
+    const val = snapshot.val();
+    if (val) {
+        reasonList = val;
+    } else {
+        reasonList = defaultReasons;
+        set(reasonsRef, defaultReasons);   // 只寫入一次，後續不再觸發
+    }
+});
+
+// ─── 計數器 ──────────────────────────────────────────────────
+// [修正] 用 CSS animation class 取代 classList add/setTimeout remove，避免 race condition
+function updateCounts(beds) {
+    let pre = 0, ready = 0, billed = 0, delayed = 0;
+    beds.forEach(bed => {
+        if (bed.type === 'separator') return;
+        if      (bed.billed)          billed++;
+        else if (bed.delayed)         delayed++;
+        else if (bed.readyForBilling) ready++;
+        else if (bed.preDischarge)    pre++;
+    });
+    setCount('count-pre',     'badge-pre',     pre);
+    setCount('count-ready',   'badge-ready',   ready);
+    setCount('count-billed',  'badge-billed',  billed);
+    setCount('count-delayed', 'badge-delayed', delayed);
+}
+
+function setCount(spanId, badgeId, value) {
+    const span  = document.getElementById(spanId);
+    const badge = document.getElementById(badgeId);
+    if (span.innerText == value) return;
+    span.innerText = value;
+    // 移除後重新加入以重播 animation
+    badge.classList.remove('badge-pop');
+    void badge.offsetWidth;   // force reflow
+    badge.classList.add('badge-pop');
+}
+
+// ─── 通知系統 ─────────────────────────────────────────────────
+function checkAndNotify(beds) {
+    const isFirst = Object.keys(lastBedStates).length === 0;
+    let hasNew = false;
+    beds.forEach(bed => {
+        if (bed.type === 'separator') return;
+        if (!isFirst && isNotifyEnabled && bed.readyForBilling && lastBedStates[bed.id] !== true) {
+            showToast(bed.id);
+            hasNew = true;
         }
+        lastBedStates[bed.id] = bed.readyForBilling;
+    });
+    if (hasNew && document.hidden) startTitleFlash();
+}
 
-        function updateCounterElement(id, newValue) {
-            const el = document.getElementById(id);
-            if (el.innerText != newValue) {
-                el.innerText = newValue;
-                el.parentElement.classList.add('scale-110'); 
-                setTimeout(() => el.parentElement.classList.remove('scale-110'), 200);
-            }
-        }
+function startTitleFlash() {
+    if (isFlashing) return;
+    isFlashing = true;
+    let alt = true;
+    flashInterval = setInterval(() => {
+        document.title = alt ? '🔔【有新通知】' : originalTitle;
+        alt = !alt;
+    }, 1000);
+}
 
-        let reasonList = [];
-        const reasonsRef = ref(db, 'reasons');
-        onValue(reasonsRef, (snapshot) => {
-            const val = snapshot.val();
-            reasonList = val ? val : defaultReasons;
-            if(!val) set(reasonsRef, defaultReasons);
-        });
+function stopTitleFlash() {
+    clearInterval(flashInterval);
+    document.title = originalTitle;
+    isFlashing = false;
+}
 
-        document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
+function showToast(bedId) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = 'toast-card toast-animate-in bg-green-600 text-white px-4 py-3 rounded-lg shadow-xl flex items-center justify-between gap-3 border border-green-400 w-full';
+    toast.innerHTML = `
+        <div class="flex items-center gap-3">
+            <span class="text-xl">🔔</span>
+            <div>
+                <div class="text-xs font-light opacity-90">護理站通知</div>
+                <div class="text-lg font-bold">${bedId} 可辦出院</div>
+            </div>
+        </div>
+        <div class="text-green-200 text-lg font-bold px-2">✕</div>`;
+    toast.addEventListener('click', () => {
+        toast.classList.replace('toast-animate-in', 'toast-animate-out');
+        setTimeout(() => toast.remove(), 300);
+    });
+    container.appendChild(toast);
+}
 
-        window.toggleEditMode = function() {
-            isEditMode = !isEditMode;
-            const btn = document.getElementById('btn-edit-mode');
-            const tools = document.getElementById('edit-tools');
-            
-            if (isEditMode) {
-                btn.innerHTML = '🔓 編輯中';
-                btn.className = 'bg-yellow-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-yellow-600 transition flex items-center gap-1 whitespace-nowrap';
-                tools.classList.remove('hidden');
-            } else {
-                btn.innerHTML = '🔒 鎖定中';
-                btn.className = 'bg-gray-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap';
-                tools.classList.add('hidden');
-            }
-            renderGrid();
-        }
+// ─── 渲染 ─────────────────────────────────────────────────────
+function renderGrid() {
+    const grid = document.getElementById('bed-grid');
+    grid.innerHTML = '';
 
-        window.toggleNotify = function() {
-            isNotifyEnabled = !isNotifyEnabled;
-            const btn = document.getElementById('btn-notify-toggle');
-            if (isNotifyEnabled) {
-                btn.innerHTML = '🔔 通知：開啟';
-                btn.className = 'shrink-0 px-3 py-1 rounded bg-green-100 text-green-700 border border-green-300 font-bold text-xs hover:bg-green-200 transition flex items-center gap-1 whitespace-nowrap';
-            } else {
-                btn.innerHTML = '🔕 靜音';
-                btn.className = 'shrink-0 px-3 py-1 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition flex items-center gap-1 whitespace-nowrap';
-                stopTitleFlash();
-            }
-        }
+    if (localBedList.length === 0) {
+        grid.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">目前無資料，請由控制端新增。</div>';
+        initSortable();
+        return;
+    }
 
-        function checkAndNotify(beds) {
-            if (isFirstLoad) {
-                beds.forEach(bed => { lastBedStates[bed.id] = bed.readyForBilling; });
-                isFirstLoad = false;
-                return;
-            }
-            if (!isNotifyEnabled) {
-                beds.forEach(bed => { lastBedStates[bed.id] = bed.readyForBilling; });
-                return;
-            }
-            let hasNewNotification = false;
-            beds.forEach(bed => {
-                if (bed.readyForBilling === true && lastBedStates[bed.id] !== true) {
-                    showToast(bed.id);
-                    hasNewNotification = true;
-                }
-                lastBedStates[bed.id] = bed.readyForBilling;
-            });
-            if (hasNewNotification && document.hidden) startTitleFlash();
-        }
+    const frag = document.createDocumentFragment();  // [優化] 用 fragment 一次插入，減少 reflow
 
-        function startTitleFlash() {
-            if (isFlashing) return;
-            isFlashing = true;
-            let showAlert = true;
-            flashInterval = setInterval(() => {
-                document.title = showAlert ? "🔔【有新通知】" : originalTitle;
-                showAlert = !showAlert;
-            }, 1000);
-        }
+    localBedList.forEach(bed => {
+        const div = document.createElement('div');
+        div.setAttribute('data-id', bed.id);
 
-        function stopTitleFlash() {
-            clearInterval(flashInterval);
-            document.title = originalTitle;
-            isFlashing = false;
-        }
-
-        function showToast(bedId) {
-            const container = document.getElementById('toast-container');
-            const toast = document.createElement('div');
-            toast.className = "toast-card toast-animate-in bg-green-600 text-white px-4 py-3 rounded-lg shadow-xl flex items-center justify-between gap-3 border border-green-400 w-full";
-            toast.innerHTML = `
-                <div class="flex items-center gap-3">
-                    <span class="text-xl">🔔</span>
-                    <div>
-                        <div class="text-xs font-light opacity-90">護理站通知</div>
-                        <div class="text-lg font-bold">${bedId} 可辦出院</div>
-                    </div>
-                </div>
-                <div class="text-green-200 text-lg font-bold px-2">✕</div>
-            `;
-            toast.onclick = () => {
-                toast.classList.remove('toast-animate-in');
-                toast.classList.add('toast-animate-out');
-                setTimeout(() => toast.remove(), 300);
-            };
-            container.appendChild(toast);
-        }
-
-        function renderGrid() {
-            const grid = document.getElementById('bed-grid');
-            grid.innerHTML = '';
-            
-            if (localBedList.length === 0) {
-                grid.innerHTML = '<div class="col-span-full text-center text-gray-400 py-8">目前無資料，請由控制端新增。</div>';
-                return;
-            }
-
-            localBedList.forEach(bed => {
-                const div = document.createElement('div');
-                div.setAttribute('data-id', bed.id);
-
-                if (bed.type === 'separator') {
-                    div.className = 'separator-card col-span-full';
-                    if (currentRole === 'control' && isEditMode) { 
-                        div.innerHTML = '<div class="w-full border-b-2 border-dashed border-gray-300 text-center text-xs text-gray-400 leading-[0.1em] pointer-events-none"><span class="bg-gray-100 px-2">換行 (雙擊刪除)</span></div>';
-                        div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
-                        div.classList.remove('cursor-default');
-                    } else {
-                        div.innerHTML = '<div class="w-full h-2"></div>'; 
-                        div.classList.add('cursor-default');
-                    }
-                } else {
-                    let cardClass = `bed-card flex flex-col items-center justify-center rounded-xl shadow-sm min-h-[5rem] sm:min-h-[6rem] ${getStatusClass(bed)}`;
-                    if (bed.preDischarge || bed.readyForBilling || bed.billed || bed.delayed) cardClass += " shadow-md transform scale-[1.02]"; 
-                    
-                    div.className = cardClass;
-                    div.innerHTML = `<span class="text-xl sm:text-2xl font-bold pointer-events-none">${bed.id}</span>`; 
-                    
-                    if(bed.billed) {
-                         div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-orange-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">已辦出院</span>`;
-                    } else if (bed.delayed) {
-                        div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none truncate max-w-[90%]">${bed.delayReason || '延遲'}</span>`;
-                    } else if(bed.readyForBilling) {
-                        div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">可辦出院</span>`;
-                    } else if (bed.preDischarge) {
-                        div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">預出院</span>`;
-                        // 新增：顯示書記的「可至護理站」備註
-                        if (bed.showClerkNote) {
-                            div.innerHTML += `<span class="text-[10px] sm:text-xs font-bold bg-purple-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none animate-pulse">可至護理站</span>`;
-                        }
-                    }
-
-                    attachBedEvents(div, bed);
-                    
-                    if (currentRole === 'control' && isEditMode && !bed.preDischarge && !bed.readyForBilling && !bed.billed && !bed.delayed) {
-                         div.ondblclick = (e) => { e.stopPropagation(); deleteBed(bed.id); };
-                         div.title = "雙擊刪除 / 拖曳排序";
-                    } else {
-                        div.title = "";
-                    }
-                }
-                grid.appendChild(div);
-            });
-            initSortable();
-        }
-
-        function attachBedEvents(element, bed) {
-            let pressTimer;
-            let isLongPress = false;
-
-            element.onmousedown = function(e) {
-                if(e.button !== 0) return; 
-                isLongPress = false;
-                pressTimer = setTimeout(() => {
-                    isLongPress = true;
-                    handleLongPress(bed);
-                }, 800); 
-            };
-            element.onmouseup = function() { clearTimeout(pressTimer); };
-            
-            element.oncontextmenu = function(e) {
-                e.preventDefault(); 
-                if (currentRole === 'nursing') {
-                    openReasonModal(bed); 
-                } else if (currentRole === 'clerk' && bed.preDischarge && !bed.readyForBilling && !bed.billed) {
-                    // 書記右鍵：切換備註
-                    toggleClerkNote(bed);
-                }
-                return false;
-            };
-            
-            element.onclick = function() {
-                if (!isLongPress) handleShortClick(bed);
-            };
-
-            element.ontouchstart = function() {
-                isLongPress = false;
-                pressTimer = setTimeout(() => {
-                    isLongPress = true;
-                    handleLongPress(bed);
-                }, 800);
-            };
-            element.ontouchend = function() { clearTimeout(pressTimer); };
-        }
-
-        function toggleClerkNote(bed) {
-            // 書記功能：切換顯示/隱藏「可至護理站」
-            update(ref(db, `beds/${bed.id}`), { showClerkNote: !bed.showClerkNote });
-        }
-
-        function handleShortClick(bed) {
-            if (isDragging) return; 
-            
-            if (bed.delayed) {
-                if (currentRole === 'nursing' || currentRole === 'control') {
-                    if (confirm(`解除「${bed.id}」的延遲狀態？`)) {
-                        update(ref(db, `beds/${bed.id}`), { delayed: false, delayReason: "" });
-                    }
-                }
-                return;
-            }
-
-            const updates = {};
-            if (currentRole === 'control') {
-                updates[`/beds/${bed.id}/preDischarge`] = !bed.preDischarge;
-            } 
-            else if (currentRole === 'nursing') {
-                updates[`/beds/${bed.id}/readyForBilling`] = !bed.readyForBilling;
-                if (bed.readyForBilling) updates[`/beds/${bed.id}/billed`] = false; 
-            }
-            else if (currentRole === 'clerk') {
-                if (!bed.readyForBilling && !bed.billed) {
-                    // 如果是預出院，短按會提示可以使用長按加註
-                    if (bed.preDischarge) {
-                        alert("提示：對粉紅色卡片「長按」或「按右鍵」，可加註通知病人前往護理站。");
-                    } else {
-                        alert("無法標記：護理端尚未確認可辦出院");
-                    }
-                    return;
-                }
-                updates[`/beds/${bed.id}/billed`] = !bed.billed;
-            }
-            update(ref(db), updates);
-        }
-
-        function handleLongPress(bed) {
-            if (navigator.vibrate) navigator.vibrate(50);
-            
-            if (currentRole === 'nursing') {
-                openReasonModal(bed);
-            } else if (currentRole === 'clerk') {
-                if (bed.preDischarge && !bed.readyForBilling && !bed.billed) {
-                    toggleClerkNote(bed);
-                }
-            }
-        }
-
-        window.openReasonModal = function(bed) {
-            const modal = document.getElementById('modal-container');
-            const title = document.getElementById('modal-title');
-            const content = document.getElementById('modal-content');
-            title.innerText = `${bed.id} 延遲原因`;
-            content.innerHTML = '';
-            reasonList.forEach(reason => {
-                const btn = document.createElement('button');
-                btn.className = "w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 text-blue-800 font-bold mb-2 active:bg-blue-200 transition";
-                btn.innerText = reason;
-                btn.onclick = () => {
-                    update(ref(db, `beds/${bed.id}`), { delayed: true, delayReason: reason });
-                    closeModal();
-                };
-                content.appendChild(btn);
-            });
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        }
-
-        window.openReasonConfig = function() {
-            const modal = document.getElementById('modal-container');
-            const title = document.getElementById('modal-title');
-            const content = document.getElementById('modal-content');
-            title.innerText = "編輯原因";
-            content.innerHTML = '<div class="mb-4 flex gap-2"><input id="new-reason-input" class="border p-2 rounded flex-grow" placeholder="新原因"><button onclick="addNewReason()" class="bg-green-500 text-white px-3 py-2 rounded font-bold">新增</button></div>';
-            const listDiv = document.createElement('div');
-            listDiv.className = "space-y-2";
-            reasonList.forEach((reason, index) => {
-                const row = document.createElement('div');
-                row.className = "flex justify-between items-center bg-gray-50 p-3 rounded-lg border";
-                row.innerHTML = `<span class="font-bold text-gray-700">${reason}</span><button onclick="removeReason(${index})" class="text-red-500 font-bold px-2 py-1 bg-red-50 rounded hover:bg-red-100">刪除</button>`;
-                listDiv.appendChild(row);
-            });
-            content.appendChild(listDiv);
-            modal.classList.remove('hidden');
-            modal.classList.add('flex');
-        }
-
-        window.addNewReason = function() {
-            const input = document.getElementById('new-reason-input');
-            const val = input.value.trim();
-            if(val) {
-                const newList = [...reasonList, val];
-                set(ref(db, 'reasons'), newList);
-                openReasonConfig(); 
-            }
-        }
-
-        window.removeReason = function(index) {
-            if(confirm("確定刪除此原因？")) {
-                const newList = reasonList.filter((_, i) => i !== index);
-                set(ref(db, 'reasons'), newList);
-                openReasonConfig(); 
-            }
-        }
-
-        window.closeModal = function() {
-            document.getElementById('modal-container').classList.add('hidden');
-            document.getElementById('modal-container').classList.remove('flex');
-        }
-
-        function initSortable() {
-            const grid = document.getElementById('bed-grid');
-            if (sortableInstance) sortableInstance.destroy();
-
-            // 只有在控制端 且 編輯模式開啟時，才允許拖曳
+        if (bed.type === 'separator') {
+            div.className = 'separator-card col-span-full';
             if (currentRole === 'control' && isEditMode) {
-                sortableInstance = new Sortable(grid, {
-                    animation: 150, forceFallback: true, fallbackOnBody: true, fallbackClass: "sortable-drag", ghostClass: "sortable-ghost", delay: 50, delayOnTouchOnly: true, multiDrag: false,
-                    onStart: function() { isDragging = true; },
-                    onEnd: function (evt) { isDragging = false; saveNewOrder(); }
-                });
-                grid.classList.remove('cursor-locked');
+                div.innerHTML = '<div class="w-full border-b-2 border-dashed border-gray-300 text-center text-xs text-gray-400 leading-[0.1em] pointer-events-none"><span class="bg-gray-100 px-2">換行 (雙擊刪除)</span></div>';
+                div.addEventListener('dblclick', (e) => { e.stopPropagation(); deleteBed(bed.id); });
             } else {
-                grid.classList.add('cursor-locked');
+                div.innerHTML = '<div class="w-full h-2"></div>';
+                div.classList.add('cursor-default');
             }
-        }
+        } else {
+            const isActive = bed.preDischarge || bed.readyForBilling || bed.billed || bed.delayed;
+            div.className = `bed-card flex flex-col items-center justify-center rounded-xl shadow-sm min-h-[5rem] sm:min-h-[6rem] ${getStatusClass(bed)}${isActive ? ' shadow-md transform scale-[1.02]' : ''}`;
 
-        function saveNewOrder() {
-            const grid = document.getElementById('bed-grid');
-            const items = grid.querySelectorAll('[data-id]');
-            const updates = {};
-            items.forEach((item, index) => {
-                updates[`/beds/${item.getAttribute('data-id')}/index`] = Number(index);
-            });
-            update(ref(db), updates);
-        }
-
-        function getStatusClass(bed) {
-            if (bed.billed) return 'status-billed';
-            if (bed.delayed) return 'status-delayed'; 
-            if (bed.readyForBilling) return 'status-ready';
-            if (bed.preDischarge) return 'status-pre-discharge';
-            return 'status-normal';
-        }
-
-        window.clearAllStatuses = function() {
-            if(!confirm("確定要清除「所有」狀態顏色？")) return;
-            const updates = {};
-            localBedList.forEach(bed => {
-                if (bed.type === 'separator') return;
-                updates[`/beds/${bed.id}/preDischarge`] = false;
-                updates[`/beds/${bed.id}/readyForBilling`] = false;
-                updates[`/beds/${bed.id}/billed`] = false;
-                updates[`/beds/${bed.id}/delayed`] = false;
-                updates[`/beds/${bed.id}/delayReason`] = "";
-                updates[`/beds/${bed.id}/showClerkNote`] = false; // 清除備註
-            });
-            update(ref(db), updates);
-        }
-
-        window.addBed = function() {
-            const input = document.getElementById('new-bed-id');
-            const id = input.value.trim();
-            if (!id) return;
-            const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
-            set(ref(db, 'beds/' + id), { 
-                type: 'bed', preDischarge: false, readyForBilling: false, billed: false, delayed: false, delayReason: "", showClerkNote: false, index: maxIndex + 1 
-            });
-            input.value = ''; input.focus(); 
-        }
-
-        window.addSeparator = function() {
-            const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
-            const sepId = 'SEP_' + Date.now();
-            set(ref(db, 'beds/' + sepId), { type: 'separator', index: maxIndex + 1 });
-        }
-
-        window.deleteBed = function(id) {
-            const isSep = id.startsWith('SEP_');
-            if(confirm(isSep ? '移除此換行分隔線？' : `刪除床號 ${id}？`)) remove(ref(db, 'beds/' + id));
-        }
-
-        window.setRole = function(role) {
-            currentRole = role;
-            ['control', 'nursing', 'clerk'].forEach(r => {
-                const btn = document.getElementById(`btn-${r}`);
-                if(r === role) {
-                    btn.className = `px-3 py-1 rounded text-white font-bold shadow transition text-xs whitespace-nowrap ${r === 'control'?'bg-blue-500': r==='nursing'?'bg-green-500':'bg-orange-500'}`;
-                    document.getElementById('role-badge').innerText = btn.innerText;
-                    document.getElementById('role-badge').className = `text-xs px-2 py-1 rounded ${r === 'control'?'bg-blue-100 text-blue-800': r==='nursing'?'bg-green-100 text-green-800':'bg-orange-100 text-orange-800'}`;
-                } else {
-                    btn.className = "px-3 py-1 rounded bg-white text-gray-500 shadow transition hover:bg-gray-100 text-xs whitespace-nowrap";
+            let inner = `<span class="text-xl sm:text-2xl font-bold pointer-events-none">${bed.id}</span>`;
+            if (bed.billed) {
+                inner += `<span class="text-[10px] sm:text-xs font-bold bg-orange-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">已辦出院</span>`;
+            } else if (bed.delayed) {
+                const label = bed.delayReason || '延遲';
+                inner += `<span class="text-[10px] sm:text-xs font-bold bg-blue-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none truncate max-w-[90%]">${label}</span>`;
+            } else if (bed.readyForBilling) {
+                inner += `<span class="text-[10px] sm:text-xs font-bold bg-green-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">可辦出院</span>`;
+            } else if (bed.preDischarge) {
+                inner += `<span class="text-[10px] sm:text-xs font-bold bg-pink-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">預出院</span>`;
+                if (bed.showClerkNote) {
+                    inner += `<span class="text-[10px] sm:text-xs font-bold bg-purple-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none animate-pulse">可至護理站</span>`;
                 }
-            });
-            document.getElementById('admin-panel').classList.toggle('hidden', role !== 'control');
-            document.getElementById('nursing-panel').classList.toggle('hidden', role !== 'nursing');
-            document.getElementById('clerk-panel').classList.toggle('hidden', role !== 'clerk');
-            
-            // 切換角色時，如果是控制端要檢查編輯模式是否開啟，其他端則強制關閉拖曳
-            renderGrid();
-        }
+            }
+            div.innerHTML = inner;
 
-        function checkUrlAndInit() {
-            const params = new URLSearchParams(window.location.search);
-            const v = params.get('v');
-            if (v === '2') {
-                setRole('nursing');
-            } else if (v === '3') {
-                setRole('clerk');
-            } else {
-                setRole('control');
+            attachBedEvents(div, bed);
+
+            if (currentRole === 'control' && isEditMode && !isActive) {
+                div.addEventListener('dblclick', (e) => { e.stopPropagation(); deleteBed(bed.id); });
+                div.title = '雙擊刪除 / 拖曳排序';
             }
         }
-        checkUrlAndInit();
-    </script>
+        frag.appendChild(div);
+    });
+
+    grid.appendChild(frag);
+    initSortable();
+}
+
+// ─── 床卡事件 ─────────────────────────────────────────────────
+// [修正] 長按後 touchend 阻止 click 重複觸發（行動裝置 bug）
+function attachBedEvents(element, bed) {
+    let pressTimer  = null;
+    let isLongPress = false;
+
+    // --- 滑鼠 ---
+    element.addEventListener('mousedown', (e) => {
+        if (e.button !== 0) return;
+        isLongPress = false;
+        pressTimer = setTimeout(() => {
+            isLongPress = true;
+            handleLongPress(bed);
+        }, 800);
+    });
+    element.addEventListener('mouseup', () => clearTimeout(pressTimer));
+    element.addEventListener('mouseleave', () => clearTimeout(pressTimer));
+
+    // --- 觸控 ---
+    element.addEventListener('touchstart', (e) => {
+        isLongPress = false;
+        pressTimer = setTimeout(() => {
+            isLongPress = true;
+            handleLongPress(bed);
+        }, 800);
+    }, { passive: true });
+
+    // [修正] 長按後阻止 click 觸發（原本沒有 preventDefault）
+    element.addEventListener('touchend', (e) => {
+        clearTimeout(pressTimer);
+        if (isLongPress) e.preventDefault();   // ← 關鍵修正
+    });
+
+    // 右鍵選單
+    element.addEventListener('contextmenu', (e) => {
+        e.preventDefault();
+        if (currentRole === 'nursing') {
+            openReasonModal(bed);
+        } else if (currentRole === 'clerk' && bed.preDischarge && !bed.readyForBilling && !bed.billed) {
+            toggleClerkNote(bed);
+        }
+    });
+
+    // 短按 click
+    element.addEventListener('click', () => {
+        if (!isLongPress) handleShortClick(bed);
+    });
+}
+
+// ─── 短按邏輯 ─────────────────────────────────────────────────
+// [修正] clerk 邏輯整理；延遲解除改用 modal（取代原生 confirm）
+// [優化] 所有狀態變更統一用單一 update() 批次寫入，減少 Firebase 呼叫次數
+function handleShortClick(bed) {
+    if (isDragging) return;
+
+    // 延遲狀態：點擊 → modal 確認解除
+    if (bed.delayed) {
+        if (currentRole === 'nursing' || currentRole === 'control') {
+            openConfirmModal(`解除「${bed.id}」的延遲狀態？`, () => {
+                dbUpdate({ [`/beds/${bed.id}/delayed`]: false, [`/beds/${bed.id}/delayReason`]: '' });
+            });
+        }
+        return;
+    }
+
+    const path = `/beds/${bed.id}`;
+
+    if (currentRole === 'control') {
+        // 控制端：切換預出院
+        dbUpdate({ [`${path}/preDischarge`]: !bed.preDischarge });
+    }
+    else if (currentRole === 'nursing') {
+        // 護理端：切換可辦出院
+        // [修正] 同步清除 showClerkNote，避免備註殘留
+        const updates = {
+            [`${path}/readyForBilling`]: !bed.readyForBilling,
+        };
+        if (!bed.readyForBilling) {
+            // 從「未準備」→「可辦」：清除書記備註，確保狀態乾淨
+            updates[`${path}/showClerkNote`] = false;
+        } else {
+            // 從「可辦」→「取消」：同步清除 billed 避免狀態矛盾
+            updates[`${path}/billed`] = false;
+        }
+        dbUpdate(updates);
+    }
+    else if (currentRole === 'clerk') {
+        // [修正] 書記端邏輯整理：
+        //   - readyForBilling 或 billed 才允許切換 billed
+        //   - preDischarge 時短按無動作（長按才加備註）
+        //   - 其他狀態提示
+        if (bed.readyForBilling || bed.billed) {
+            dbUpdate({ [`${path}/billed`]: !bed.billed });
+        }
+        // preDischarge：短按靜默，引導長按使用（面板說明已有指示）
+        // 其他（normal）：不動作
+    }
+}
+
+// ─── 長按邏輯 ─────────────────────────────────────────────────
+function handleLongPress(bed) {
+    if (navigator.vibrate) navigator.vibrate(50);
+    if (currentRole === 'nursing') {
+        openReasonModal(bed);
+    } else if (currentRole === 'clerk') {
+        if (bed.preDischarge && !bed.readyForBilling && !bed.billed) {
+            toggleClerkNote(bed);
+        }
+    }
+}
+
+// ─── 書記備註 ─────────────────────────────────────────────────
+function toggleClerkNote(bed) {
+    dbUpdate({ [`/beds/${bed.id}/showClerkNote`]: !bed.showClerkNote });
+}
+
+// ─── DB 寫入封裝（集中管理，方便後續 debug/throttle）─────────
+// [優化] 所有寫入都通過此函式，未來可加 throttle/debounce 防抖
+function dbUpdate(updates) {
+    update(ref(db), updates);
+}
+
+// ─── 延遲原因 Modal ───────────────────────────────────────────
+function openReasonModal(bed) {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').innerText = `${bed.id} 延遲原因`;
+    content.innerHTML = '';
+    reasonList.forEach(reason => {
+        const btn = document.createElement('button');
+        btn.className = 'w-full text-left px-4 py-3 bg-blue-50 hover:bg-blue-100 rounded-lg border border-blue-200 text-blue-800 font-bold mb-2 active:bg-blue-200 transition';
+        btn.innerText = reason;
+        btn.addEventListener('click', () => {
+            dbUpdate({ [`/beds/${bed.id}/delayed`]: true, [`/beds/${bed.id}/delayReason`]: reason });
+            closeModal();
+        });
+        content.appendChild(btn);
+    });
+    showModal();
+}
+
+// ─── 確認 Modal（取代原生 confirm）────────────────────────────
+// [修正] 統一用自訂 modal，移除所有原生 confirm()/alert()
+function openConfirmModal(message, onConfirm) {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').innerText = '確認操作';
+    content.innerHTML = `
+        <p class="text-center text-gray-700 py-4 font-medium">${message}</p>
+        <div class="flex gap-2">
+            <button id="modal-confirm-ok"     class="flex-1 py-2 bg-blue-600 text-white rounded-lg font-bold hover:bg-blue-700 transition">確定</button>
+            <button id="modal-confirm-cancel" class="flex-1 py-2 bg-gray-100 text-gray-600 rounded-lg font-bold hover:bg-gray-200 transition">取消</button>
+        </div>`;
+    document.getElementById('modal-confirm-ok').addEventListener('click', () => { onConfirm(); closeModal(); });
+    document.getElementById('modal-confirm-cancel').addEventListener('click', closeModal);
+    showModal();
+}
+
+// ─── 原因設定 Modal ───────────────────────────────────────────
+function openReasonConfig() {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').innerText = '編輯原因';
+    content.innerHTML = `
+        <div class="mb-4 flex gap-2">
+            <input id="new-reason-input" class="border p-2 rounded flex-grow text-sm" placeholder="新原因">
+            <button id="btn-add-reason" class="bg-green-500 text-white px-3 py-2 rounded font-bold text-sm">新增</button>
+        </div>`;
+    const listDiv = document.createElement('div');
+    listDiv.className = 'space-y-2';
+    reasonList.forEach((reason, index) => {
+        const row = document.createElement('div');
+        row.className = 'flex justify-between items-center bg-gray-50 p-3 rounded-lg border';
+        row.innerHTML = `<span class="font-bold text-gray-700 text-sm">${reason}</span>`;
+        const delBtn = document.createElement('button');
+        delBtn.className = 'text-red-500 font-bold px-2 py-1 bg-red-50 rounded hover:bg-red-100 text-sm';
+        delBtn.innerText = '刪除';
+        delBtn.addEventListener('click', () => removeReason(index));
+        row.appendChild(delBtn);
+        listDiv.appendChild(row);
+    });
+    content.appendChild(listDiv);
+
+    document.getElementById('btn-add-reason').addEventListener('click', () => {
+        const input = document.getElementById('new-reason-input');
+        const val = input.value.trim();
+        if (val) {
+            set(ref(db, 'reasons'), [...reasonList, val]);
+            // [優化] 不重新打開 modal，直接在原地新增一行
+            const row = document.createElement('div');
+            row.className = 'flex justify-between items-center bg-gray-50 p-3 rounded-lg border';
+            const newIndex = reasonList.length; // 在 onValue 更新前的暫時 index
+            row.innerHTML = `<span class="font-bold text-gray-700 text-sm">${val}</span>`;
+            const delBtn2 = document.createElement('button');
+            delBtn2.className = 'text-red-500 font-bold px-2 py-1 bg-red-50 rounded hover:bg-red-100 text-sm';
+            delBtn2.innerText = '刪除';
+            delBtn2.addEventListener('click', () => removeReason(newIndex));
+            row.appendChild(delBtn2);
+            listDiv.appendChild(row);
+            input.value = '';
+        }
+    });
+    showModal();
+}
+
+function removeReason(index) {
+    openConfirmModal('確定刪除此原因？', () => {
+        set(ref(db, 'reasons'), reasonList.filter((_, i) => i !== index));
+    });
+}
+
+function showModal() {
+    const m = document.getElementById('modal-container');
+    m.classList.remove('hidden');
+    m.classList.add('flex');
+}
+
+function closeModal() {
+    const m = document.getElementById('modal-container');
+    m.classList.add('hidden');
+    m.classList.remove('flex');
+}
+
+// ─── Sortable 拖曳 ────────────────────────────────────────────
+function initSortable() {
+    const grid = document.getElementById('bed-grid');
+    if (sortableInstance) { sortableInstance.destroy(); sortableInstance = null; }
+
+    if (currentRole === 'control' && isEditMode) {
+        sortableInstance = new Sortable(grid, {
+            animation: 150, forceFallback: true, fallbackOnBody: true,
+            fallbackClass: 'sortable-drag', ghostClass: 'sortable-ghost',
+            delay: 50, delayOnTouchOnly: true,
+            onStart: () => { isDragging = true; },
+            onEnd:   () => { isDragging = false; saveNewOrder(); }
+        });
+        grid.classList.remove('cursor-locked');
+    } else {
+        grid.classList.add('cursor-locked');
+    }
+}
+
+// [優化] saveNewOrder 直接讀 DOM，不做額外 DB get()
+function saveNewOrder() {
+    const updates = {};
+    document.querySelectorAll('#bed-grid [data-id]').forEach((el, i) => {
+        updates[`/beds/${el.getAttribute('data-id')}/index`] = i;
+    });
+    dbUpdate(updates);
+}
+
+function getStatusClass(bed) {
+    if (bed.billed)          return 'status-billed';
+    if (bed.delayed)         return 'status-delayed';
+    if (bed.readyForBilling) return 'status-ready';
+    if (bed.preDischarge)    return 'status-pre-discharge';
+    return 'status-normal';
+}
+
+// ─── 床位管理 ─────────────────────────────────────────────────
+function addBed() {
+    const input = document.getElementById('new-bed-id');
+    const id = input.value.trim();
+    if (!id) return;
+    // [優化] 用 localBedList 取 maxIndex，不需額外 DB get()
+    const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
+    set(ref(db, `beds/${id}`), {
+        type: 'bed', preDischarge: false, readyForBilling: false,
+        billed: false, delayed: false, delayReason: '', showClerkNote: false,
+        index: maxIndex + 1
+    });
+    input.value = '';
+    input.focus();
+}
+
+function addSeparator() {
+    const maxIndex = localBedList.length > 0 ? Math.max(...localBedList.map(b => Number(b.index) || 0)) : 0;
+    set(ref(db, `beds/SEP_${Date.now()}`), { type: 'separator', index: maxIndex + 1 });
+}
+
+function deleteBed(id) {
+    const msg = id.startsWith('SEP_') ? '移除此換行分隔線？' : `刪除床號 ${id}？`;
+    openConfirmModal(msg, () => remove(ref(db, `beds/${id}`)));
+}
+
+function clearAllStatuses() {
+    openConfirmModal('確定要清除「所有」狀態顏色？', () => {
+        const updates = {};
+        localBedList.forEach(bed => {
+            if (bed.type === 'separator') return;
+            // [優化] 只寫有狀態的欄位，不寫 false→false 的無意義更新
+            if (bed.preDischarge)    updates[`/beds/${bed.id}/preDischarge`]    = false;
+            if (bed.readyForBilling) updates[`/beds/${bed.id}/readyForBilling`] = false;
+            if (bed.billed)          updates[`/beds/${bed.id}/billed`]          = false;
+            if (bed.delayed)         updates[`/beds/${bed.id}/delayed`]         = false;
+            if (bed.delayReason)     updates[`/beds/${bed.id}/delayReason`]     = '';
+            if (bed.showClerkNote)   updates[`/beds/${bed.id}/showClerkNote`]   = false;
+        });
+        if (Object.keys(updates).length) dbUpdate(updates);
+    });
+}
+
+// ─── 角色切換 ─────────────────────────────────────────────────
+function setRole(role) {
+    currentRole = role;
+    const roleMap = {
+        control: { label: '控制端', color: 'blue',   badgeClass: 'bg-blue-100   text-blue-800'   },
+        nursing: { label: '護理端', color: 'green',  badgeClass: 'bg-green-100  text-green-800'  },
+        clerk:   { label: '書記端', color: 'orange', badgeClass: 'bg-orange-100 text-orange-800' },
+    };
+
+    ['control', 'nursing', 'clerk'].forEach(r => {
+        const btn = document.getElementById(`btn-${r}`);
+        if (r === role) {
+            const { color } = roleMap[r];
+            btn.className = `px-3 py-1 rounded text-white font-bold shadow transition text-xs whitespace-nowrap bg-${color}-500`;
+        } else {
+            btn.className = 'px-3 py-1 rounded bg-white text-gray-500 shadow transition hover:bg-gray-100 text-xs whitespace-nowrap';
+        }
+    });
+
+    const badge = document.getElementById('role-badge');
+    badge.innerText  = roleMap[role].label;
+    badge.className  = `text-xs px-2 py-1 rounded ${roleMap[role].badgeClass}`;
+
+    document.getElementById('admin-panel').classList.toggle('hidden',   role !== 'control');
+    document.getElementById('nursing-panel').classList.toggle('hidden', role !== 'nursing');
+    document.getElementById('clerk-panel').classList.toggle('hidden',   role !== 'clerk');
+
+    renderGrid();
+}
+
+function toggleEditMode() {
+    isEditMode = !isEditMode;
+    const btn = document.getElementById('btn-edit-mode');
+    const tools = document.getElementById('edit-tools');
+    if (isEditMode) {
+        btn.innerHTML  = '🔓 編輯中';
+        btn.className  = 'bg-yellow-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-yellow-600 transition flex items-center gap-1 whitespace-nowrap';
+        tools.classList.remove('hidden');
+    } else {
+        btn.innerHTML  = '🔒 鎖定中';
+        btn.className  = 'bg-gray-500 text-white px-3 py-1.5 rounded-md font-bold shadow text-xs hover:bg-gray-600 transition flex items-center gap-1 whitespace-nowrap';
+        tools.classList.add('hidden');
+    }
+    renderGrid();
+}
+
+function toggleNotify() {
+    isNotifyEnabled = !isNotifyEnabled;
+    const btn = document.getElementById('btn-notify-toggle');
+    if (isNotifyEnabled) {
+        btn.innerHTML  = '🔔 通知：開啟';
+        btn.className  = 'shrink-0 px-3 py-1 rounded bg-green-100 text-green-700 border border-green-300 font-bold text-xs hover:bg-green-200 transition flex items-center gap-1 whitespace-nowrap';
+    } else {
+        btn.innerHTML  = '🔕 靜音';
+        btn.className  = 'shrink-0 px-3 py-1 rounded bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition flex items-center gap-1 whitespace-nowrap';
+        stopTitleFlash();
+    }
+}
+
+// ─── 事件綁定（取代 onclick="..." HTML 屬性）────────────────────
+// [修正] 全部改用 addEventListener，移除全域 window 暴露
+document.addEventListener('DOMContentLoaded', () => {
+    // 角色切換
+    document.getElementById('btn-control').addEventListener('click', () => setRole('control'));
+    document.getElementById('btn-nursing').addEventListener('click', () => setRole('nursing'));
+    document.getElementById('btn-clerk').addEventListener('click',   () => setRole('clerk'));
+
+    // 通知切換
+    document.getElementById('btn-notify-toggle').addEventListener('click', toggleNotify);
+
+    // 控制端工具
+    document.getElementById('btn-edit-mode').addEventListener('click', toggleEditMode);
+    document.getElementById('btn-add-bed').addEventListener('click',   addBed);
+    document.getElementById('btn-add-sep').addEventListener('click',   addSeparator);
+    document.getElementById('btn-reason-config').addEventListener('click', openReasonConfig);
+    document.getElementById('btn-clear-all').addEventListener('click', clearAllStatuses);
+    document.getElementById('modal-close-btn').addEventListener('click', closeModal);
+
+    // Enter 新增床號
+    document.getElementById('new-bed-id').addEventListener('keydown', (e) => {
+        if (e.key === 'Enter') addBed();
+    });
+
+    // 頁面恢復可見時停止 title 閃爍
+    document.addEventListener('visibilitychange', () => {
+        if (!document.hidden) stopTitleFlash();
+    });
+
+    // 初始化角色
+    const params = new URLSearchParams(window.location.search);
+    const v = params.get('v');
+    if      (v === '2') setRole('nursing');
+    else if (v === '3') setRole('clerk');
+    else                setRole('control');
+});
+</script>
 </body>
 </html>
