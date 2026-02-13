@@ -3,7 +3,7 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>病房出院即時看板 (V20)</title>
+    <title>病房出院即時看板 (V20-AutoSort)</title>
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
@@ -55,7 +55,6 @@
 
     <div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm px-4 sm:px-0"></div>
 
-    <!-- Modal 統一用於所有互動選擇，取代原生 confirm/alert -->
     <div id="modal-container" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay">
         <div class="bg-white rounded-xl shadow-2xl w-11/12 max-w-sm p-4 transform transition-all scale-100">
             <h3 id="modal-title" class="text-lg font-bold text-gray-800 mb-3 text-center border-b pb-2">選單</h3>
@@ -67,7 +66,6 @@
     </div>
 
     <div class="max-w-7xl mx-auto">
-        <!-- 頂部控制列 -->
         <div class="mb-2 flex flex-col sm:flex-row justify-between items-center bg-white p-2 rounded-lg shadow-sm gap-2">
             <h1 class="text-base sm:text-lg font-bold text-gray-800 flex items-center gap-2 whitespace-nowrap">
                 🏥 看板
@@ -95,7 +93,6 @@
             </div>
         </div>
 
-        <!-- 控制端面板 -->
         <div id="admin-panel" class="mb-2 bg-blue-50 p-2 rounded-lg border border-blue-100 shadow-sm hidden">
             <div class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar w-full">
                 <div class="flex items-center gap-2 shrink-0 border-r border-blue-200 pr-2 mr-1">
@@ -117,7 +114,6 @@
             </div>
         </div>
 
-        <!-- 護理端面板 -->
         <div id="nursing-panel" class="mb-2 bg-green-50 p-2 rounded-lg border border-green-100 shadow-sm hidden">
             <div class="flex items-center gap-2">
                 <span class="text-xl">👩‍⚕️</span>
@@ -127,7 +123,6 @@
             </div>
         </div>
 
-        <!-- 書記端面板 -->
         <div id="clerk-panel" class="mb-2 bg-orange-50 p-2 rounded-lg border border-orange-100 shadow-sm hidden">
             <div class="flex items-center gap-2">
                 <span class="text-xl">📝</span>
@@ -203,7 +198,8 @@ onValue(bedsRef, (snapshot) => {
         showClerkNote:   !!data[key].showClerkNote,
         index:           data[key].index !== undefined ? Number(data[key].index) : 9999
     })).sort((a, b) => {
-        if (a.index !== b.index) return a.index - b.index;
+        // [修改重點] 忽略手動 index，強制依照床號 ID 排序
+        // numeric: true 可確保 "10" 排在 "2" 後面 (自然排序)
         return a.id.localeCompare(b.id, undefined, { numeric: true });
     });
 
@@ -360,7 +356,7 @@ function renderGrid() {
 
             if (currentRole === 'control' && isEditMode && !isActive) {
                 div.addEventListener('dblclick', (e) => { e.stopPropagation(); deleteBed(bed.id); });
-                div.title = '雙擊刪除 / 拖曳排序';
+                div.title = '雙擊刪除';
             }
         }
         frag.appendChild(div);
