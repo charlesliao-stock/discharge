@@ -111,6 +111,14 @@
         }
         .msg-badge:hover { background: #dc2626; transform: scale(1.2); animation: none; }
 
+        /* 已讀舊留言 → 綠色靜態 */
+        .msg-badge.msg-badge-read {
+            background: #16a34a;
+            box-shadow: 0 2px 6px rgba(22,163,74,.4);
+            animation: none;   /* 不跳動，低調提示 */
+        }
+        .msg-badge.msg-badge-read:hover { background: #15803d; transform: scale(1.2); }
+
         /* ── 留言列表 ── */
         .msg-item { transition: background .15s; }
         .msg-item:hover { background: #f8fafc; }
@@ -278,23 +286,29 @@ function getTotalMsgCount(bedId) {
 // 重繪所有床卡的徽章（避免全頁重繪）
 function refreshAllBadges() {
     document.querySelectorAll('#bed-grid [data-id]').forEach(el => {
-        const bedId = el.dataset.id;
+        const bedId    = el.dataset.id;
         const existing = el.querySelector('.msg-badge');
-        const count = (currentRole === 'control')
-            ? getTotalMsgCount(bedId)
-            : getUnreadCount(bedId, currentRole);
-        if (count > 0) {
-            if (existing) { existing.textContent = count; }
-            else          { el.appendChild(createMsgBadge(bedId, count)); }
-        } else {
+        const total    = getTotalMsgCount(bedId);
+        const unread   = (currentRole === 'control') ? total : getUnreadCount(bedId, currentRole);
+        const isRead   = total > 0 && unread === 0;  // 有留言但全已讀
+
+        if (total === 0) {
             existing?.remove();
+        } else if (unread > 0) {
+            // 紅色未讀徽章
+            if (existing) { existing.textContent = unread; existing.classList.remove('msg-badge-read'); }
+            else          { el.appendChild(createMsgBadge(bedId, unread, false)); }
+        } else {
+            // 綠色已讀徽章（有舊留言）
+            if (existing) { existing.textContent = total; existing.classList.add('msg-badge-read'); }
+            else          { el.appendChild(createMsgBadge(bedId, total, true)); }
         }
     });
 }
 
-function createMsgBadge(bedId, count) {
+function createMsgBadge(bedId, count, isRead = false) {
     const badge = document.createElement('div');
-    badge.className = 'msg-badge';
+    badge.className = `msg-badge${isRead ? ' msg-badge-read' : ''}`;
     badge.textContent = count;
     badge.dataset.badge = 'true';
     badge.addEventListener('click', (e) => {
@@ -605,10 +619,12 @@ function createBedCard(bed) {
         div.innerHTML = inner;
 
         // 留言徽章
-        const msgCount = (currentRole === 'control')
-            ? getTotalMsgCount(bed.id)
-            : getUnreadCount(bed.id, currentRole);
-        if (msgCount > 0) div.appendChild(createMsgBadge(bed.id, msgCount));
+        const total   = getTotalMsgCount(bed.id);
+        const unread  = (currentRole === 'control') ? total : getUnreadCount(bed.id, currentRole);
+        if (total > 0) {
+            const isRead = unread === 0;
+            div.appendChild(createMsgBadge(bed.id, isRead ? total : unread, isRead));
+        }
 
         attachBedEvents(div, bed);
     }
