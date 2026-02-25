@@ -8,33 +8,39 @@
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
-        
         * { font-family: 'Noto Sans TC', sans-serif; }
         body { user-select: none; touch-action: manipulation; }
 
-        /* ── 床位狀態色 ── */
+        /* ════════════════════════════════════════
+           【床位狀態色】
+           要改顏色就改這裡對應的 background / color / border
+           ════════════════════════════════════════ */
         .status-normal        { background: #fff;    color: #374151; border: 2px solid #e5e7eb; }
         .status-pre-discharge { background: #fff1f2; color: #9d174d; border: 2px solid #be185d; }
         .status-ready         { background: #f0fdf4; color: #166534; border: 2px solid #15803d; }
         .status-billed        { background: #fff7ed; color: #9a3412; border: 2px solid #ea580c; }
         .status-delayed       { background: #eff6ff; color: #1e40af; border: 2px solid #3b82f6; }
 
-        /* ── 床卡 ── */
+        /* ════════════════════════════════════════
+           【床卡本體樣式】
+           position: relative 是必須的，讓留言徽章定位在卡片右上角
+           ════════════════════════════════════════ */
         .bed-card {
             transition: transform 0.12s ease, box-shadow 0.12s ease;
-            cursor: pointer; touch-action: none;
+            cursor: pointer;
+            touch-action: none;
             box-sizing: border-box;
-            position: relative;   /* 讓 .msg-badge 定位在卡片右上角 */
+            position: relative; /* ← 不可刪，留言徽章需要這個才能定位在右上角 */
         }
         .bed-card:active { transform: scale(0.94); }
-        .bed-card.edit-mode-card {
-            border-style: dashed !important;
-            opacity: 0.82;
-            cursor: pointer;
-        }
+
+        /* 編輯模式下床卡外觀（虛線框） */
+        .bed-card.edit-mode-card { border-style: dashed !important; opacity: 0.82; }
         .bed-card.edit-mode-card:hover { opacity: 1; transform: scale(1.04); }
 
-        /* ── 拖拉 ── */
+        /* ════════════════════════════════════════
+           【拖拉換組效果】
+           ════════════════════════════════════════ */
         .bed-card.draggable { cursor: grab; }
         .bed-card.draggable:active { cursor: grabbing; }
         .sortable-ghost {
@@ -50,39 +56,49 @@
             z-index: 9999 !important;
             cursor: grabbing !important;
         }
+        /* 拖入時目標分組容器的高亮外框 */
         .group-drop-active {
             background: #eef2ff !important;
             box-shadow: 0 0 0 2px #6366f1 inset;
             border-radius: 0 0 0.75rem 0.75rem;
         }
 
-        /* ── 分組 ── */
+        /* ════════════════════════════════════════
+           【分組區塊動畫 & 標題樣式】
+           group-header 的 border-left 顏色可自行更換
+           ════════════════════════════════════════ */
         .group-section { animation: fadeInUp 0.2s ease both; }
         @keyframes fadeInUp { from { opacity:0; transform:translateY(8px); } to { opacity:1; transform:translateY(0); } }
-
         .group-header {
             background: linear-gradient(90deg, #f8fafc 0%, #f1f5f9 100%);
-            border-left: 4px solid #818cf8;
+            border-left: 4px solid #818cf8; /* ← 左側紫色條，可改色 */
         }
 
-        /* ── Toast ── */
+        /* ════════════════════════════════════════
+           【Toast 通知動畫】
+           ════════════════════════════════════════ */
         @keyframes slideIn { from { transform:translateX(110%); opacity:0; } to { transform:translateX(0); opacity:1; } }
         @keyframes fadeOut { to   { transform:translateX(110%); opacity:0; } }
         .toast-in  { animation: slideIn .3s ease-out forwards; }
         .toast-out { animation: fadeOut .3s ease-in  forwards; }
 
-        /* ── Modal ── */
+        /* Modal 遮罩 */
         .modal-overlay { background: rgba(0,0,0,.52); backdrop-filter: blur(3px); }
 
-        /* ── 滾動隱藏 ── */
+        /* 隱藏捲軸 */
         .no-scrollbar::-webkit-scrollbar { display:none; }
         .no-scrollbar { -ms-overflow-style:none; scrollbar-width:none; }
 
-        /* ── 計數徽章動畫 ── */
+        /* ════════════════════════════════════════
+           【頂部計數徽章彈跳動畫】
+           ════════════════════════════════════════ */
         @keyframes popBadge { 0%,100% { transform:scale(1); } 50% { transform:scale(1.18); } }
         .badge-pop { animation: popBadge .25s ease; }
 
-        /* ── 分組 Tab ── */
+        /* ════════════════════════════════════════
+           【分組篩選 Tab 樣式】
+           .active 是選中狀態的樣式
+           ════════════════════════════════════════ */
         .group-tab { transition: all .15s ease; }
         .group-tab.active {
             background: #4f46e5 !important;
@@ -91,39 +107,50 @@
             box-shadow: 0 2px 8px rgba(79,70,229,.35);
         }
 
-        /* ── 留言徽章 ── */
+        /* ════════════════════════════════════════
+           【留言徽章（床卡右上角數字）】
+           紅色 = 有未讀留言（跳動）
+           綠色（.msg-badge-read）= 全部已讀的舊留言（靜態）
+           top / right 控制徽章距卡片邊緣的距離
+           ════════════════════════════════════════ */
         @keyframes bounceBadge {
             0%,100% { transform: translateY(0) scale(1); }
             30%     { transform: translateY(-4px) scale(1.15); }
             60%     { transform: translateY(-2px) scale(1.05); }
         }
         .msg-badge {
-            position: absolute; top: -8px; right: -8px;
+            position: absolute;
+            top: -8px; right: -8px; /* ← 調整徽章位置 */
             min-width: 20px; height: 20px; padding: 0 4px;
-            background: #ef4444; color: #fff;
+            background: #ef4444; /* ← 未讀紅色 */
+            color: #fff;
             font-size: 10px; font-weight: 900;
             border-radius: 9999px;
             display: flex; align-items: center; justify-content: center;
             border: 2px solid #fff;
             box-shadow: 0 2px 6px rgba(239,68,68,.5);
-            animation: bounceBadge 1.2s ease infinite;
+            animation: bounceBadge 1.2s ease infinite; /* ← 未讀時跳動 */
             cursor: pointer; z-index: 10;
         }
         .msg-badge:hover { background: #dc2626; transform: scale(1.2); animation: none; }
 
-        /* 已讀舊留言 → 綠色靜態 */
+        /* 已讀舊留言 → 綠色、不跳動 */
         .msg-badge.msg-badge-read {
-            background: #16a34a;
+            background: #16a34a; /* ← 已讀綠色 */
             box-shadow: 0 2px 6px rgba(22,163,74,.4);
-            animation: none;   /* 不跳動，低調提示 */
+            animation: none;
         }
         .msg-badge.msg-badge-read:hover { background: #15803d; transform: scale(1.2); }
 
-        /* ── 留言列表 ── */
+        /* ════════════════════════════════════════
+           【留言列表樣式】
+           未讀（.msg-unread）文字加粗，已讀（.msg-read）文字淺灰
+           ════════════════════════════════════════ */
         .msg-item { transition: background .15s; }
         .msg-item:hover { background: #f8fafc; }
         .msg-unread .msg-text { font-weight: 900; color: #1e293b; }
         .msg-read   .msg-text { font-weight: 400; color: #64748b; }
+        /* 留言備註標籤（黃色底） */
         .msg-note-label {
             font-size: 10px; background: #fef9c3; color: #854d0e;
             border: 1px solid #fde68a; border-radius: 4px;
@@ -131,107 +158,144 @@
         }
     </style>
 </head>
+
+<!-- ════════════════════════════════════════════════════════════
+     【body 背景色】bg-slate-100 可換頁面背景
+     p-2 sm:p-4 是頁面邊距
+     ════════════════════════════════════════════════════════════ -->
 <body class="bg-slate-100 p-2 sm:p-4 min-h-screen">
 
-<!-- ── Toast 容器 ── -->
-<div id="toast-container" class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm px-3 sm:px-0 pointer-events-none"></div>
+<!-- Toast 通知容器（右下角浮動） -->
+<div id="toast-container"
+     class="fixed bottom-4 right-4 z-50 flex flex-col gap-2 w-full max-w-sm px-3 sm:px-0 pointer-events-none">
+</div>
 
-<!-- ── Modal ── -->
+<!-- ════════════════════════════════════════════════════════════
+     Modal 通用彈窗
+     max-w-md 控制彈窗最大寬度
+     max-h-[65vh] 控制內容區最大高度
+     ════════════════════════════════════════════════════════════ -->
 <div id="modal-container" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay">
     <div class="bg-white rounded-2xl shadow-2xl w-11/12 max-w-md p-5 transform transition-all">
         <h3 id="modal-title" class="text-base font-black text-gray-800 mb-3 text-center border-b pb-2 tracking-wide">選單</h3>
         <div id="modal-content" class="space-y-1.5 max-h-[65vh] overflow-y-auto pr-1"></div>
         <div class="mt-4 pt-3 border-t">
-            <button id="modal-close-btn" class="w-full py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold hover:bg-gray-200 transition text-sm">關閉</button>
+            <button id="modal-close-btn"
+                    class="w-full py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold hover:bg-gray-200 transition text-sm">
+                關閉
+            </button>
         </div>
     </div>
 </div>
 
+<!-- ════════════════════════════════════════════════════════════
+     【整體版面寬度】
+     w-[90%] = 佔螢幕寬度 90%，mx-auto 水平置中
+     ➜ 要改整體寬度，就改 w-[90%] 這個值
+        例如 w-[95%]（更寬）、w-full（全寬）、max-w-7xl（固定最大寬）
+     ════════════════════════════════════════════════════════════ -->
 <div class="w-[90%] mx-auto space-y-2">
 
-    <!-- ── Header ── -->
+    <!-- Header 標題列 -->
     <div class="flex flex-col sm:flex-row justify-between items-center bg-white p-2.5 rounded-xl shadow-sm gap-2">
         <h1 class="text-base sm:text-lg font-black text-gray-800 flex items-center gap-2 whitespace-nowrap tracking-tight">
             🏥 出院看板
             <span id="role-badge" class="text-xs px-2.5 py-1 rounded-lg bg-blue-100 text-blue-800 font-bold">控制端</span>
         </h1>
         <div class="flex flex-col items-end gap-1.5 w-full sm:w-auto">
-            <!-- 角色 + 通知 -->
+            <!-- 角色切換 + 通知按鈕 -->
             <div class="flex flex-nowrap overflow-x-auto no-scrollbar items-center gap-2 w-full sm:w-auto justify-end">
                 <div class="flex bg-gray-100 p-1 rounded-xl shrink-0 gap-0.5">
                     <button id="btn-control" class="px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap">控制</button>
                     <button id="btn-nursing" class="px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap">護理</button>
                     <button id="btn-clerk"   class="px-3 py-1.5 rounded-lg text-xs font-bold transition whitespace-nowrap">書記</button>
                 </div>
-                <button id="btn-notify-toggle" class="shrink-0 px-3 py-1.5 rounded-xl bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition whitespace-nowrap">🔕 靜音</button>
+                <button id="btn-notify-toggle"
+                        class="shrink-0 px-3 py-1.5 rounded-xl bg-gray-200 text-gray-500 border border-gray-300 font-bold text-xs hover:bg-gray-300 transition whitespace-nowrap">
+                    🔕 靜音
+                </button>
             </div>
-            <!-- 計數徽章 -->
+            <!-- 頂部四色計數徽章 -->
             <div class="flex flex-nowrap gap-1.5 text-[10px] sm:text-xs font-bold overflow-x-auto no-scrollbar w-full sm:w-auto justify-end">
-                <div id="badge-pre"     class="bg-pink-100   text-pink-700   px-2 py-0.5 rounded-lg border border-pink-200   flex items-center gap-1 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-pink-500 shrink-0"></span>預出: <span id="count-pre">0</span></div>
+                <div id="badge-pre"     class="bg-pink-100   text-pink-700   px-2 py-0.5 rounded-lg border border-pink-200   flex items-center gap-1 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-pink-500  shrink-0"></span>預出: <span id="count-pre">0</span></div>
                 <div id="badge-ready"   class="bg-green-100  text-green-700  px-2 py-0.5 rounded-lg border border-green-200  flex items-center gap-1 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-green-500 shrink-0"></span>可辦: <span id="count-ready">0</span></div>
                 <div id="badge-billed"  class="bg-orange-100 text-orange-700 px-2 py-0.5 rounded-lg border border-orange-200 flex items-center gap-1 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-orange-500 shrink-0"></span>已辦: <span id="count-billed">0</span></div>
-                <div id="badge-delayed" class="bg-blue-50    text-blue-700   px-2 py-0.5 rounded-lg border border-blue-200   flex items-center gap-1 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-blue-500 shrink-0"></span>延遲: <span id="count-delayed">0</span></div>
+                <div id="badge-delayed" class="bg-blue-50    text-blue-700   px-2 py-0.5 rounded-lg border border-blue-200   flex items-center gap-1 whitespace-nowrap"><span class="w-2 h-2 rounded-full bg-blue-500  shrink-0"></span>延遲: <span id="count-delayed">0</span></div>
             </div>
         </div>
     </div>
 
-    <!-- ── 控制面板 ── -->
+    <!-- 控制端工具面板 -->
     <div id="admin-panel" class="bg-indigo-50 p-2.5 rounded-xl border border-indigo-100 shadow-sm hidden">
         <div class="flex flex-nowrap items-center gap-2 overflow-x-auto no-scrollbar w-full">
             <span class="text-xl shrink-0">⚙️</span>
-            <button id="btn-edit-mode" class="shrink-0 bg-gray-500 text-white px-3 py-1.5 rounded-lg font-bold shadow text-xs hover:bg-gray-600 transition whitespace-nowrap">🔒 鎖定中</button>
-            <!-- 編輯工具（切換顯示） -->
+            <button id="btn-edit-mode"
+                    class="shrink-0 bg-gray-500 text-white px-3 py-1.5 rounded-lg font-bold shadow text-xs hover:bg-gray-600 transition whitespace-nowrap">
+                🔒 鎖定中
+            </button>
+            <!-- 編輯工具列（鎖定時隱藏） -->
             <div id="edit-tools" class="hidden">
                 <div class="flex items-center gap-2 flex-nowrap">
                     <input type="text" id="new-bed-id" placeholder="床號"
                            class="border p-1.5 rounded-lg w-16 text-center focus:ring-2 focus:ring-indigo-400 outline-none text-xs font-bold">
                     <select id="new-bed-group"
-                            class="border p-1.5 rounded-lg text-xs focus:ring-2 focus:ring-indigo-400 outline-none font-bold max-w-[100px]"></select>
+                            class="border p-1.5 rounded-lg text-xs focus:ring-2 focus:ring-indigo-400 outline-none font-bold max-w-[100px]">
+                    </select>
                     <button id="btn-add-bed"
-                            class="shrink-0 bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow text-xs hover:bg-indigo-700 whitespace-nowrap">＋ 新增床號</button>
+                            class="shrink-0 bg-indigo-600 text-white px-3 py-1.5 rounded-lg font-bold shadow text-xs hover:bg-indigo-700 whitespace-nowrap">
+                        ＋ 新增床號
+                    </button>
                     <button id="btn-group-config"
-                            class="shrink-0 bg-purple-100 text-purple-700 border border-purple-300 px-3 py-1.5 rounded-lg font-bold hover:bg-purple-200 shadow text-xs whitespace-nowrap">🏷️ 管理分組</button>
+                            class="shrink-0 bg-purple-100 text-purple-700 border border-purple-300 px-3 py-1.5 rounded-lg font-bold hover:bg-purple-200 shadow text-xs whitespace-nowrap">
+                        🏷️ 管理分組
+                    </button>
                 </div>
             </div>
             <button id="btn-reason-config"
-                    class="shrink-0 bg-sky-100 text-sky-700 border border-sky-300 px-3 py-1.5 rounded-lg font-bold hover:bg-sky-200 shadow text-xs whitespace-nowrap">📝 原因</button>
+                    class="shrink-0 bg-sky-100 text-sky-700 border border-sky-300 px-3 py-1.5 rounded-lg font-bold hover:bg-sky-200 shadow text-xs whitespace-nowrap">
+                📝 原因
+            </button>
             <button id="btn-clear-all"
-                    class="shrink-0 bg-red-100 text-red-600 border border-red-300 px-3 py-1.5 rounded-lg font-bold hover:bg-red-200 shadow text-xs whitespace-nowrap">♻️ 重置</button>
+                    class="shrink-0 bg-red-100 text-red-600 border border-red-300 px-3 py-1.5 rounded-lg font-bold hover:bg-red-200 shadow text-xs whitespace-nowrap">
+                ♻️ 重置
+            </button>
         </div>
     </div>
 
-    <!-- ── 護理面板 ── -->
+    <!-- 護理端提示面板 -->
     <div id="nursing-panel" class="bg-green-50 p-2.5 rounded-xl border border-green-100 shadow-sm hidden">
         <div class="flex items-center gap-2 text-xs text-gray-600">
             <span class="text-xl">👩‍⚕️</span>
-            <span><b class="text-gray-800">護理：</b>點擊床號完成準備；<b class="text-blue-600">長按/右鍵</b>標記延遲原因。</span>
+            <span><b class="text-gray-800">護理：</b>點擊床號完成準備；<b class="text-blue-600">長按 / 右鍵</b>標記延遲原因。</span>
         </div>
     </div>
 
-    <!-- ── 書記面板 ── -->
+    <!-- 書記端提示面板 -->
     <div id="clerk-panel" class="bg-orange-50 p-2.5 rounded-xl border border-orange-100 shadow-sm hidden">
         <div class="flex items-center gap-2 text-xs text-gray-600">
             <span class="text-xl">📝</span>
-            <span><b class="text-gray-800">書記：</b>對粉紅色床號<b class="text-purple-600">長按/右鍵</b>可加註「可至護理站」。</span>
+            <span><b class="text-gray-800">書記：</b>對粉紅色床號<b class="text-purple-600">長按 / 右鍵</b>可加註「可至護理站」。</span>
         </div>
     </div>
 
-    <!-- ── 分組篩選 Tabs ── -->
+    <!-- 分組篩選 Tab 列（有兩個以上分組才顯示） -->
     <div id="group-filter-bar" class="flex flex-nowrap gap-1.5 overflow-x-auto no-scrollbar pb-0.5 hidden"></div>
 
-    <!-- ── 床位主區 ── -->
+    <!-- 床位主區（各分組卡片在這裡渲染） -->
     <div id="bed-grid" class="min-h-[200px] pb-20 space-y-3">
         <div class="text-center text-gray-400 py-12 text-sm">資料載入中⋯</div>
     </div>
 
-</div><!-- /max-w-7xl -->
+</div><!-- /w-[90%] -->
 
 <script type="module">
-import { initializeApp }  from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
 import { getDatabase, ref, set, onValue, remove, update, push }
     from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
-/* ─── Firebase ─────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Firebase 設定
+   ════════════════════════════════════════════════════════════ */
 const firebaseConfig = {
     apiKey:            "AIzaSyDmuMbCIPPZZlxxpYKiruDEdspUDtSWYjM",
     authDomain:        "discharge-86653.firebaseapp.com",
@@ -244,46 +308,51 @@ const firebaseConfig = {
 const app = initializeApp(firebaseConfig);
 const db  = getDatabase(app);
 
-/* ─── 狀態 ────────────────────────────────────────────── */
-let currentRole        = 'control';
-let localBedList       = [];
-let groups             = {};       // { groupId: { name, index } }
-let selectedGroupFilter = 'all';
-let lastBedStates      = {};
-let isNotifyEnabled    = false;
-let isFlashing         = false;
-let flashInterval      = null;
-let isEditMode         = false;
-let reasonList         = [];
-let groupsLoaded       = false;
-let bedsLoaded         = false;
-let localMessages      = {};       // { bedId: { msgId: { text, time, readByNursing, readByClerk, note } } }
-let msgSortDesc        = true;     // 留言排序：true = 新→舊
-const originalTitle    = document.title;
-const DEFAULT_REASONS  = ["等待家屬","等待檢查報告","帳務問題","病情變化","等待救護車","其他"];
+/* ════════════════════════════════════════════════════════════
+   全域狀態變數
+   ════════════════════════════════════════════════════════════ */
+let currentRole         = 'control';  // 目前角色：control / nursing / clerk
+let localBedList        = [];         // 床位資料快取
+let groups              = {};         // 分組資料快取 { groupId: { name, index } }
+let selectedGroupFilter = 'all';      // 目前選中的分組 Tab
+let lastBedStates       = {};         // 偵測「可辦出院」狀態變化用
+let isNotifyEnabled     = false;      // 通知開關
+let isFlashing          = false;      // 標題列閃爍中
+let flashInterval       = null;
+let isEditMode          = false;      // 控制端編輯模式
+let reasonList          = [];         // 延遲原因列表
+let groupsLoaded        = false;      // Firebase 資料載入旗標
+let bedsLoaded          = false;
+let localMessages       = {};         // 留言快取 { bedId: { msgId: { text,time,readByNursing,readByClerk,note } } }
+let msgSortDesc         = true;       // 留言排序：true=新→舊
+const originalTitle     = document.title;
+const DEFAULT_REASONS   = ["等待家屬","等待檢查報告","帳務問題","病情變化","等待救護車","其他"];
 
-/* ─── DB 封裝 ──────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   DB 寫入封裝（所有 Firebase 寫入都走這裡）
+   ════════════════════════════════════════════════════════════ */
 const dbUpdate = (updates) => update(ref(db), updates);
 
-/* ─── 留言輔助 ─────────────────────────────────────────── */
-// 取得某床的未讀數（nursing 或 clerk）
+/* ════════════════════════════════════════════════════════════
+   留言輔助函式
+   ════════════════════════════════════════════════════════════ */
+
+// 取得某床的未讀留言數（依角色判斷）
 function getUnreadCount(bedId, role) {
     const msgs = localMessages[bedId];
     if (!msgs) return 0;
-    return Object.values(msgs).filter(m => {
-        if (role === 'nursing') return !m.readByNursing;
-        if (role === 'clerk')   return !m.readByClerk;
-        return false;
-    }).length;
+    return Object.values(msgs).filter(m =>
+        role === 'nursing' ? !m.readByNursing : !m.readByClerk
+    ).length;
 }
 
-// 取得某床的總留言數（控制端顯示用）
+// 取得某床的總留言數（控制端用）
 function getTotalMsgCount(bedId) {
     const msgs = localMessages[bedId];
     return msgs ? Object.keys(msgs).length : 0;
 }
 
-// 重繪所有床卡的徽章（避免全頁重繪）
+// 更新所有床卡的留言徽章（不重繪整個 grid）
 function refreshAllBadges() {
     document.querySelectorAll('#bed-grid [data-id]').forEach(el => {
         const bedId    = el.dataset.id;
@@ -295,43 +364,49 @@ function refreshAllBadges() {
         if (total === 0) {
             existing?.remove();
         } else if (unread > 0) {
-            // 紅色未讀徽章
+            // 紅色跳動：有未讀
             if (existing) { existing.textContent = unread; existing.classList.remove('msg-badge-read'); }
             else          { el.appendChild(createMsgBadge(bedId, unread, false)); }
         } else {
-            // 綠色已讀徽章（有舊留言）
+            // 綠色靜態：有舊留言但全已讀
             if (existing) { existing.textContent = total; existing.classList.add('msg-badge-read'); }
             else          { el.appendChild(createMsgBadge(bedId, total, true)); }
         }
     });
 }
 
+// 建立留言徽章元素
+// isRead=false → 紅色跳動；isRead=true → 綠色靜態
 function createMsgBadge(bedId, count, isRead = false) {
     const badge = document.createElement('div');
     badge.className = `msg-badge${isRead ? ' msg-badge-read' : ''}`;
     badge.textContent = count;
     badge.dataset.badge = 'true';
     badge.addEventListener('click', (e) => {
-        e.stopPropagation();
+        e.stopPropagation(); // 防止觸發床卡的 click 事件
         openMessageListModal(bedId);
     });
     return badge;
 }
 
-// 新留言通知
+// 偵測新留言並彈出 Toast
 function checkNewMsgNotify(newData) {
     if (!isNotifyEnabled) return;
     Object.keys(newData).forEach(bedId => {
         const newCount = Object.keys(newData[bedId] || {}).length;
         const oldCount = Object.keys(localMessages[bedId] || {}).length;
         if (newCount > oldCount) {
-            const latest = Object.values(newData[bedId]).sort((a,b)=>b.time-a.time)[0];
+            const latest = Object.values(newData[bedId]).sort((a,b) => b.time - a.time)[0];
             showMsgToast(bedId, latest?.text || '');
         }
     });
 }
 
-/* ─── Firebase: groups ─────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Firebase 即時監聽
+   ════════════════════════════════════════════════════════════ */
+
+// 監聽分組資料
 onValue(ref(db, 'groups'), (snap) => {
     const val = snap.val();
     if (!val) {
@@ -349,10 +424,9 @@ onValue(ref(db, 'groups'), (snap) => {
     if (bedsLoaded) renderGrid();
 });
 
-/* ─── Firebase: beds ───────────────────────────────────── */
+// 監聽床位資料
 onValue(ref(db, 'beds'), (snap) => {
     const data = snap.val() || {};
-    // 忽略舊版 separator 資料，只保留 bed 類型
     localBedList = Object.keys(data)
         .filter(key => !data[key].type || data[key].type === 'bed')
         .map(key => ({
@@ -366,27 +440,27 @@ onValue(ref(db, 'beds'), (snap) => {
             delayReason:     data[key].delayReason    || '',
             showClerkNote:   !!data[key].showClerkNote,
         }));
-
     bedsLoaded = true;
     updateCounts(localBedList);
     checkAndNotify(localBedList);
     if (groupsLoaded) renderGrid();
 });
 
-/* ─── Firebase: reasons ────────────────────────────────── */
+// 監聽延遲原因列表
 onValue(ref(db, 'reasons'), (snap) => {
     const val = snap.val();
     reasonList = val || DEFAULT_REASONS;
     if (!val) set(ref(db, 'reasons'), DEFAULT_REASONS);
 });
 
-/* ─── Firebase: messages ───────────────────────────────── */
+// 監聽留言資料
 onValue(ref(db, 'messages'), (snap) => {
     const data = snap.val() || {};
     checkNewMsgNotify(data);
 
-    // ★ 合併時保留已在本地標記為 true 的已讀旗標
-    // （避免伺服器快照覆蓋我們剛寫入的 readByNursing/readByClerk）
+    // ★ 保留本地已標記為 true 的已讀旗標
+    // Firebase onValue 有時會先回傳舊快照，把剛寫入的 true 蓋回 false
+    // 用合併方式確保已讀狀態不倒退
     Object.keys(data).forEach(bedId => {
         Object.keys(data[bedId] || {}).forEach(msgId => {
             const local = localMessages?.[bedId]?.[msgId];
@@ -399,21 +473,27 @@ onValue(ref(db, 'messages'), (snap) => {
     refreshAllBadges();
 });
 
-/* ─── 輔助：排序 ───────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   排序輔助
+   ════════════════════════════════════════════════════════════ */
+
+// 取得依 index 排序的分組陣列
 function getSortedGroups() {
     return Object.entries(groups)
         .map(([id, g]) => ({ id, ...g, index: g.index ?? 0 }))
         .sort((a, b) => a.index - b.index);
 }
 
-// 每個分組內的床號，依自然排序（床號數字正確排列）
+// 取得某分組內的床位，依床號自然排序（2 < 10 < 22）
 function getBedsForGroup(groupId) {
     return localBedList
         .filter(b => (b.groupId || 'default') === groupId)
         .sort((a, b) => a.id.localeCompare(b.id, undefined, { numeric: true }));
 }
 
-/* ─── 計數 ─────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   頂部計數徽章
+   ════════════════════════════════════════════════════════════ */
 function updateCounts(beds) {
     let pre = 0, ready = 0, billed = 0, delayed = 0;
     beds.forEach(b => {
@@ -427,17 +507,20 @@ function updateCounts(beds) {
     setCount('count-billed',  'badge-billed',  billed);
     setCount('count-delayed', 'badge-delayed', delayed);
 }
+
 function setCount(spanId, badgeId, val) {
     const span  = document.getElementById(spanId);
     const badge = document.getElementById(badgeId);
     if (span.textContent == val) return;
     span.textContent = val;
     badge.classList.remove('badge-pop');
-    void badge.offsetWidth;
+    void badge.offsetWidth; // 強制 reflow 以重播動畫
     badge.classList.add('badge-pop');
 }
 
-/* ─── 通知 ─────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   出院通知（狀態改變 → Toast / 標題閃爍）
+   ════════════════════════════════════════════════════════════ */
 function checkAndNotify(beds) {
     const isFirst = Object.keys(lastBedStates).length === 0;
     let hasNew = false;
@@ -450,6 +533,7 @@ function checkAndNotify(beds) {
     });
     if (hasNew && document.hidden) startTitleFlash();
 }
+
 function startTitleFlash() {
     if (isFlashing) return;
     isFlashing = true;
@@ -459,32 +543,30 @@ function startTitleFlash() {
         alt = !alt;
     }, 1000);
 }
+
 function stopTitleFlash() {
     clearInterval(flashInterval);
     document.title = originalTitle;
     isFlashing = false;
 }
+
+// 出院通知 Toast（綠色）
 function showToast(bedId) {
     const c = document.getElementById('toast-container');
     const t = document.createElement('div');
     t.className = 'toast-in bg-green-600 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center justify-between gap-3 border border-green-400 w-full pointer-events-auto cursor-pointer';
     t.innerHTML = `<div class="flex items-center gap-3"><span class="text-xl">🔔</span><div><div class="text-xs opacity-80">護理站通知</div><div class="text-base font-black">${bedId} 可辦出院</div></div></div><div class="text-2xl opacity-60 font-bold">✕</div>`;
-    t.addEventListener('click', () => {
-        t.classList.replace('toast-in', 'toast-out');
-        setTimeout(() => t.remove(), 300);
-    });
+    t.addEventListener('click', () => { t.classList.replace('toast-in','toast-out'); setTimeout(()=>t.remove(),300); });
     c.appendChild(t);
-    setTimeout(() => {
-        if (!t.classList.contains('toast-out')) {
-            t.classList.replace('toast-in', 'toast-out');
-            setTimeout(() => t.remove(), 300);
-        }
-    }, 8000);
+    setTimeout(() => { if (!t.classList.contains('toast-out')) { t.classList.replace('toast-in','toast-out'); setTimeout(()=>t.remove(),300); } }, 8000);
 }
 
-/* ─── 渲染主邏輯 ────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   主渲染函式 renderGrid()
+   每次資料更新或角色切換都會重新呼叫
+   ════════════════════════════════════════════════════════════ */
 function renderGrid() {
-    const container  = document.getElementById('bed-grid');
+    const container = document.getElementById('bed-grid');
     container.innerHTML = '';
 
     const sortedGroups = getSortedGroups();
@@ -498,22 +580,21 @@ function renderGrid() {
 
     sortedGroups.forEach(group => {
         if (selectedGroupFilter !== 'all' && selectedGroupFilter !== group.id) return;
-
         const beds = getBedsForGroup(group.id);
-        // 非編輯模式下，空分組不顯示（避免雜亂）
         if (beds.length === 0 && !isEditMode && selectedGroupFilter === 'all') return;
 
+        // 分組區塊
         const section = document.createElement('div');
         section.className = 'group-section';
         section.dataset.groupId = group.id;
 
-        /* 分組 Header */
+        // 分組標題列
         const header = document.createElement('div');
         header.className = 'group-header flex items-center justify-between px-3 py-2 rounded-t-xl border border-gray-200';
-
         const left = document.createElement('div');
         left.className = 'flex items-center gap-2';
-        left.innerHTML = `<span class="font-black text-gray-700 text-sm tracking-tight">🏷️ ${group.name}</span><span class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-md">${beds.length} 床</span>`;
+        left.innerHTML = `<span class="font-black text-gray-700 text-sm tracking-tight">🏷️ ${group.name}</span>
+                          <span class="text-xs text-gray-400 bg-gray-100 px-1.5 py-0.5 rounded-md">${beds.length} 床</span>`;
         header.appendChild(left);
 
         // 編輯模式下顯示改名/刪除按鈕
@@ -536,14 +617,19 @@ function renderGrid() {
         }
         section.appendChild(header);
 
-        /* 床卡 Grid */
+        /* ════════════════════════════════════════
+           【床卡容器】
+           flex flex-wrap → 卡片自動換行
+           gap-2          → 卡片間距（可改 gap-3、gap-4）
+           p-2            → 容器內邊距
+           ════════════════════════════════════════ */
         const grid = document.createElement('div');
-        grid.className = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 bg-white rounded-b-xl border border-t-0 border-gray-200 p-2 min-h-[76px]';
-        grid.dataset.groupId = group.id;   // ← 供 Sortable onEnd 識別目標分組
+        grid.className = 'flex flex-wrap gap-2 bg-white rounded-b-xl border border-t-0 border-gray-200 p-2 min-h-[76px]';
+        grid.dataset.groupId = group.id; // Sortable 換組用
 
         if (beds.length === 0) {
             const empty = document.createElement('div');
-            empty.className = 'col-span-full text-center text-gray-300 text-xs py-4 italic';
+            empty.className = 'w-full text-center text-gray-300 text-xs py-4 italic';
             empty.textContent = '（此分組尚無床號）';
             grid.appendChild(empty);
         } else {
@@ -559,38 +645,33 @@ function renderGrid() {
     if (currentRole === 'control' && isEditMode) initSortables();
 }
 
-/* ─── 跨分組 Sortable ───────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Sortable 跨分組拖拉
+   ════════════════════════════════════════════════════════════ */
 let _sortableInstances = [];
 
 function initSortables() {
-    // 清除舊 instance
     _sortableInstances.forEach(s => s.destroy());
     _sortableInstances = [];
-
     document.querySelectorAll('#bed-grid [data-group-id]').forEach(gridEl => {
         const inst = new Sortable(gridEl, {
-            group:          { name: 'beds', pull: true, put: true },
-            animation:      200,
-            forceFallback:  true,
-            fallbackOnBody: true,
-            ghostClass:     'sortable-ghost',
-            dragClass:      'sortable-drag-class',
-            delay:          80,
+            group:            { name: 'beds', pull: true, put: true },
+            animation:        200,
+            forceFallback:    true,
+            fallbackOnBody:   true,
+            ghostClass:       'sortable-ghost',
+            dragClass:        'sortable-drag-class',
+            delay:            80,
             delayOnTouchOnly: true,
-            // 拖入/拖出時高亮目標容器
             onEnter: (evt) => evt.to.classList.add('group-drop-active'),
             onLeave: (evt) => evt.from.classList.remove('group-drop-active'),
             onEnd: (evt) => {
                 evt.to.classList.remove('group-drop-active');
                 evt.from.classList.remove('group-drop-active');
-
                 const bedId      = evt.item.dataset.id;
                 const newGroupId = evt.to.dataset.groupId;
                 const oldGroupId = evt.from.dataset.groupId;
-
                 if (!bedId || newGroupId === oldGroupId) return;
-
-                // 寫入 Firebase，onValue 觸發後會自動重排床號
                 dbUpdate({ [`/beds/${bedId}/groupId`]: newGroupId });
             }
         });
@@ -598,21 +679,40 @@ function initSortables() {
     });
 }
 
-/* ─── 建立床卡 ──────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   建立床卡 DOM 元素
+   ════════════════════════════════════════════════════════════ */
 function createBedCard(bed) {
-    const div  = document.createElement('div');
+    const div = document.createElement('div');
     div.dataset.id = bed.id;
-    const isActive = bed.preDischarge || bed.readyForBilling || bed.billed || bed.delayed;
+
+    const isActive  = bed.preDischarge || bed.readyForBilling || bed.billed || bed.delayed;
     const editClass = (currentRole === 'control' && isEditMode) ? ' edit-mode-card' : '';
-    div.className = `bed-card flex flex-col items-center justify-center rounded-xl shadow-sm min-h-[5rem] sm:min-h-[6rem] ${getStatusClass(bed)}${isActive ? ' shadow-md' : ''}${editClass}`;
+
+    /* ════════════════════════════════════════
+       【床卡寬度 & 最小高度】
+       w-[10%]    → 固定佔容器寬度 10%（每行約 9 張）
+       min-w-[60px] → 最小寬度，防止手機過窄
+       min-h-[5rem] → 卡片最小高度
+
+       ➜ 要改卡片寬度就改 w-[10%]：
+            w-[8%]  → 更窄，每行約 11 張
+            w-[12%] → 較寬，每行約 7 張
+            w-[15%] → 寬，每行約 6 張
+       ➜ 要改卡片高度就改 min-h-[5rem]
+       ════════════════════════════════════════ */
+    div.className = `bed-card w-[10%] min-w-[60px] min-h-[5rem] flex flex-col items-center justify-center rounded-xl shadow-sm
+        ${getStatusClass(bed)}${isActive ? ' shadow-md' : ''}${editClass}`;
 
     if (currentRole === 'control' && isEditMode) {
+        // 編輯模式：顯示拖拉提示，點擊開啟床位管理
         div.classList.add('draggable');
         div.innerHTML = `
             <span class="text-xl sm:text-2xl font-black pointer-events-none">${bed.id}</span>
             <span class="text-[9px] text-indigo-300 mt-0.5 pointer-events-none">⠿ 拖拉換組</span>`;
         div.addEventListener('click', () => openBedEditModal(bed));
     } else {
+        // 一般模式：顯示狀態標籤
         let inner = `<span class="text-xl sm:text-2xl font-black pointer-events-none">${bed.id}</span>`;
         if (bed.billed) {
             inner += `<span class="text-[10px] font-bold bg-orange-600 text-white px-2 py-0.5 rounded-full mt-1 pointer-events-none">已辦出院</span>`;
@@ -628,9 +728,9 @@ function createBedCard(bed) {
         }
         div.innerHTML = inner;
 
-        // 留言徽章
-        const total   = getTotalMsgCount(bed.id);
-        const unread  = (currentRole === 'control') ? total : getUnreadCount(bed.id, currentRole);
+        // 加上留言徽章
+        const total  = getTotalMsgCount(bed.id);
+        const unread = (currentRole === 'control') ? total : getUnreadCount(bed.id, currentRole);
         if (total > 0) {
             const isRead = unread === 0;
             div.appendChild(createMsgBadge(bed.id, isRead ? total : unread, isRead));
@@ -641,7 +741,9 @@ function createBedCard(bed) {
     return div;
 }
 
-/* ─── 床卡事件 ──────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   床卡事件綁定（長按 / 右鍵 / 點擊）
+   ════════════════════════════════════════════════════════════ */
 function attachBedEvents(el, bed) {
     let timer = null, isLP = false;
 
@@ -650,14 +752,14 @@ function attachBedEvents(el, bed) {
         isLP = false;
         timer = setTimeout(() => { isLP = true; handleLongPress(bed); }, 750);
     });
-    el.addEventListener('mouseup',   () => clearTimeout(timer));
-    el.addEventListener('mouseleave',() => clearTimeout(timer));
-    el.addEventListener('touchstart',() => {
+    el.addEventListener('mouseup',    () => clearTimeout(timer));
+    el.addEventListener('mouseleave', () => clearTimeout(timer));
+    el.addEventListener('touchstart', () => {
         isLP = false;
         timer = setTimeout(() => { isLP = true; handleLongPress(bed); }, 750);
     }, { passive: true });
-    el.addEventListener('touchend',  (e) => { clearTimeout(timer); if (isLP) e.preventDefault(); });
-    el.addEventListener('contextmenu',(e) => {
+    el.addEventListener('touchend', (e) => { clearTimeout(timer); if (isLP) e.preventDefault(); });
+    el.addEventListener('contextmenu', (e) => {
         e.preventDefault();
         if      (currentRole === 'control') openNewMessageModal(bed.id);
         else if (currentRole === 'nursing') openReasonModal(bed);
@@ -666,9 +768,10 @@ function attachBedEvents(el, bed) {
     el.addEventListener('click', () => { if (!isLP) handleShortClick(bed); });
 }
 
-/* ─── 短按 ──────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   短按邏輯（各角色點擊床卡的行為）
+   ════════════════════════════════════════════════════════════ */
 function handleShortClick(bed) {
-    // 延遲狀態：確認後解除
     if (bed.delayed) {
         if (currentRole === 'nursing' || currentRole === 'control') {
             openConfirmModal(`解除「${bed.id}」的延遲狀態？`, () => {
@@ -692,7 +795,9 @@ function handleShortClick(bed) {
     }
 }
 
-/* ─── 長按 ──────────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   長按邏輯
+   ════════════════════════════════════════════════════════════ */
 function handleLongPress(bed) {
     if (navigator.vibrate) navigator.vibrate(50);
     if      (currentRole === 'control') openNewMessageModal(bed.id);
@@ -704,7 +809,11 @@ function toggleClerkNote(bed) {
     dbUpdate({ [`/beds/${bed.id}/showClerkNote`]: !bed.showClerkNote });
 }
 
-/* ─── Modal：新增留言（控制端右鍵）────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：新增留言
+   控制端：右鍵 / 長按床卡
+   護理端：從留言列表底部「＋ 新增留言」進入
+   ════════════════════════════════════════════════════════════ */
 function openNewMessageModal(bedId) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = `💬 ${bedId} — 新增留言`;
@@ -713,14 +822,8 @@ function openNewMessageModal(bedId) {
             class="w-full border rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-indigo-400 outline-none"
             rows="4" placeholder="輸入留言內容⋯"></textarea>
         <div class="flex gap-2 mt-2">
-            <button id="msg-submit"
-                class="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition text-sm">
-                📨 送出
-            </button>
-            <button id="msg-view"
-                class="px-3 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition text-sm whitespace-nowrap">
-                📋 查看
-            </button>
+            <button id="msg-submit" class="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition text-sm">📨 送出</button>
+            <button id="msg-view"   class="px-3 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition text-sm whitespace-nowrap">📋 查看</button>
         </div>`;
     showModal();
     const inp = document.getElementById('msg-input');
@@ -728,13 +831,7 @@ function openNewMessageModal(bedId) {
     const submit = () => {
         const text = inp.value.trim();
         if (!text) return;
-        push(ref(db, `messages/${bedId}`), {
-            text,
-            time:           Date.now(),
-            readByNursing:  false,
-            readByClerk:    false,
-            note:           ''
-        });
+        push(ref(db, `messages/${bedId}`), { text, time: Date.now(), readByNursing: false, readByClerk: false, note: '' });
         closeModal();
     };
     document.getElementById('msg-submit').addEventListener('click', submit);
@@ -742,10 +839,13 @@ function openNewMessageModal(bedId) {
     document.getElementById('msg-view').addEventListener('click', () => { closeModal(); openMessageListModal(bedId); });
 }
 
-/* ─── Modal：留言列表（護理/書記/控制端查看）──────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：留言列表（所有角色都可查看）
+   護理 / 書記開啟時自動標記已讀，立即更新本地快取避免徽章閃回紅色
+   ════════════════════════════════════════════════════════════ */
 function openMessageListModal(bedId) {
-    const msgs  = localMessages[bedId] || {};
-    const keys  = Object.keys(msgs);
+    const msgs = localMessages[bedId] || {};
+    const keys = Object.keys(msgs);
 
     if ((currentRole === 'nursing' || currentRole === 'clerk') && keys.length > 0) {
         const readField = currentRole === 'nursing' ? 'readByNursing' : 'readByClerk';
@@ -753,7 +853,7 @@ function openMessageListModal(bedId) {
         keys.forEach(k => {
             if (!msgs[k][readField]) {
                 updates[`/messages/${bedId}/${k}/${readField}`] = true;
-                // ★ 立即同步本地快取，不等 onValue 回調
+                // ★ 立即更新本地快取，不等 Firebase onValue 回傳
                 if (!localMessages[bedId]) localMessages[bedId] = {};
                 if (!localMessages[bedId][k]) localMessages[bedId][k] = {};
                 localMessages[bedId][k][readField] = true;
@@ -761,10 +861,9 @@ function openMessageListModal(bedId) {
         });
         if (Object.keys(updates).length) {
             dbUpdate(updates);
-            refreshAllBadges();   // ★ 立刻更新徽章顏色
+            refreshAllBadges(); // 立刻切換徽章顏色
         }
     }
-
     renderMessageListModal(bedId);
 }
 
@@ -778,13 +877,12 @@ function renderMessageListModal(bedId) {
         msgSortDesc ? b.time - a.time : a.time - b.time
     );
 
-    /* 工具列 */
+    // 工具列：留言數 + 排序切換按鈕
     const toolbar = document.createElement('div');
     toolbar.className = 'flex items-center justify-between mb-3 pb-2 border-b';
     toolbar.innerHTML = `
         <span class="text-xs font-bold text-gray-400">${sorted.length} 則留言</span>
-        <button id="msg-sort-btn"
-            class="text-xs px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg border hover:bg-slate-200 font-bold flex items-center gap-1">
+        <button id="msg-sort-btn" class="text-xs px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg border hover:bg-slate-200 font-bold">
             ${msgSortDesc ? '⬇ 最新優先' : '⬆ 最舊優先'}
         </button>`;
     content.appendChild(toolbar);
@@ -793,7 +891,6 @@ function renderMessageListModal(bedId) {
         renderMessageListModal(bedId);
     });
 
-    /* 留言清單 */
     if (sorted.length === 0) {
         const empty = document.createElement('div');
         empty.className = 'text-center text-gray-300 py-8 text-sm italic';
@@ -802,20 +899,20 @@ function renderMessageListModal(bedId) {
     } else {
         const list = document.createElement('div');
         list.className = 'space-y-2';
+
         sorted.forEach(([msgId, msg]) => {
             const isUnread = currentRole === 'nursing' ? !msg.readByNursing
                            : currentRole === 'clerk'   ? !msg.readByClerk
-                           : false; // 控制端不分已讀
+                           : false; // 控制端不區分已讀
 
-            const timeStr  = new Date(msg.time).toLocaleString('zh-TW', {
-                month:'2-digit', day:'2-digit',
-                hour:'2-digit',  minute:'2-digit'
+            const timeStr = new Date(msg.time).toLocaleString('zh-TW', {
+                month:'2-digit', day:'2-digit', hour:'2-digit', minute:'2-digit'
             });
 
             const item = document.createElement('div');
             item.className = `msg-item ${isUnread ? 'msg-unread' : 'msg-read'} bg-white rounded-xl border p-3`;
 
-            // 控制端 + 護理端 具備編輯權限
+            // 控制端 + 護理端 具備編輯/刪除/備註權限；書記端唯讀
             const canEdit = (currentRole === 'control' || currentRole === 'nursing');
 
             item.innerHTML = `
@@ -828,50 +925,37 @@ function renderMessageListModal(bedId) {
                     ${canEdit ? `
                     <div class="flex flex-col gap-1 shrink-0">
                         <button data-action="edit"   data-id="${msgId}" data-bed="${bedId}"
-                            class="text-[10px] px-2 py-1 bg-blue-50 text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-100 font-bold whitespace-nowrap">
-                            ✏️ 編輯
-                        </button>
+                            class="text-[10px] px-2 py-1 bg-blue-50 text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-100 font-bold whitespace-nowrap">✏️ 編輯</button>
                         <button data-action="note"   data-id="${msgId}" data-bed="${bedId}"
-                            class="text-[10px] px-2 py-1 bg-yellow-50 text-yellow-600 rounded-lg border border-yellow-200 hover:bg-yellow-100 font-bold whitespace-nowrap">
-                            📌 備註
-                        </button>
+                            class="text-[10px] px-2 py-1 bg-yellow-50 text-yellow-600 rounded-lg border border-yellow-200 hover:bg-yellow-100 font-bold whitespace-nowrap">📌 備註</button>
                         <button data-action="delete" data-id="${msgId}" data-bed="${bedId}"
-                            class="text-[10px] px-2 py-1 bg-red-50 text-red-500 rounded-lg border border-red-200 hover:bg-red-100 font-bold">
-                            🗑️ 刪除
-                        </button>
+                            class="text-[10px] px-2 py-1 bg-red-50 text-red-500 rounded-lg border border-red-200 hover:bg-red-100 font-bold">🗑️ 刪除</button>
                     </div>` : ''}
                 </div>`;
             list.appendChild(item);
         });
         content.appendChild(list);
 
-        // 操作事件
+        // 綁定編輯 / 備註 / 刪除事件
         content.querySelectorAll('[data-action="edit"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                openMsgEditModal(btn.dataset.bed, btn.dataset.id,
-                    msgs[btn.dataset.id]?.text || '');
-            });
+            btn.addEventListener('click', () => openMsgEditModal(btn.dataset.bed, btn.dataset.id, msgs[btn.dataset.id]?.text || ''));
+        });
+        content.querySelectorAll('[data-action="note"]').forEach(btn => {
+            btn.addEventListener('click', () => openNoteEditModal(btn.dataset.bed, btn.dataset.id, msgs[btn.dataset.id]?.note || ''));
         });
         content.querySelectorAll('[data-action="delete"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 openConfirmModal('確定刪除此則留言？', () => {
                     remove(ref(db, `messages/${btn.dataset.bed}/${btn.dataset.id}`));
-                    // 同步移除本地快取
                     if (localMessages[btn.dataset.bed]) delete localMessages[btn.dataset.bed][btn.dataset.id];
                     refreshAllBadges();
                     renderMessageListModal(btn.dataset.bed);
                 });
             });
         });
-        content.querySelectorAll('[data-action="note"]').forEach(btn => {
-            btn.addEventListener('click', () => {
-                openNoteEditModal(btn.dataset.bed, btn.dataset.id,
-                    msgs[btn.dataset.id]?.note || '');
-            });
-        });
     }
 
-    /* 控制端 + 護理端 底部新增按鈕 */
+    // 控制端 + 護理端 底部新增留言按鈕
     if (currentRole === 'control' || currentRole === 'nursing') {
         const addBtn = document.createElement('button');
         addBtn.className = 'w-full mt-3 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-200 font-bold hover:bg-indigo-100 transition text-sm';
@@ -883,7 +967,9 @@ function renderMessageListModal(bedId) {
     showModal();
 }
 
-/* ─── Modal：編輯留言內文 ────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：編輯留言內文（控制端 + 護理端）
+   ════════════════════════════════════════════════════════════ */
 function openMsgEditModal(bedId, msgId, currentText) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = '✏️ 編輯留言';
@@ -901,7 +987,6 @@ function openMsgEditModal(bedId, msgId, currentText) {
         const newText = inp.value.trim();
         if (newText) {
             dbUpdate({ [`/messages/${bedId}/${msgId}/text`]: newText });
-            // 同步本地快取
             if (localMessages[bedId]?.[msgId]) localMessages[bedId][msgId].text = newText;
         }
         closeModal();
@@ -913,7 +998,9 @@ function openMsgEditModal(bedId, msgId, currentText) {
     });
 }
 
-/* ─── Modal：備註編輯 ────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：備註編輯（控制端 + 護理端）
+   ════════════════════════════════════════════════════════════ */
 function openNoteEditModal(bedId, msgId, currentNote) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = '📌 編輯備註';
@@ -936,33 +1023,34 @@ function openNoteEditModal(bedId, msgId, currentNote) {
         closeModal();
         setTimeout(() => openMessageListModal(bedId), 150);
     });
-    // 不呼叫 showModal()，因為 modal 已經開著
 }
 
-/* ─── 留言 Toast ─────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   留言 Toast（深藍色）
+   ════════════════════════════════════════════════════════════ */
 function showMsgToast(bedId, text) {
     const c = document.getElementById('toast-container');
     const t = document.createElement('div');
     t.className = 'toast-in bg-indigo-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-indigo-400 w-full pointer-events-auto cursor-pointer';
-    t.innerHTML = `
-        <span class="text-xl">💬</span>
-        <div class="flex-1 min-w-0">
-            <div class="text-[10px] opacity-75">新留言 · ${bedId}</div>
-            <div class="text-sm font-bold truncate">${escapeHtml(text)}</div>
-        </div>
+    t.innerHTML = `<span class="text-xl">💬</span>
+        <div class="flex-1 min-w-0"><div class="text-[10px] opacity-75">新留言 · ${bedId}</div><div class="text-sm font-bold truncate">${escapeHtml(text)}</div></div>
         <div class="text-lg opacity-50">✕</div>`;
-    t.addEventListener('click', () => { t.classList.replace('toast-in', 'toast-out'); setTimeout(() => t.remove(), 300); });
+    t.addEventListener('click', () => { t.classList.replace('toast-in','toast-out'); setTimeout(()=>t.remove(),300); });
     c.appendChild(t);
-    setTimeout(() => { if (!t.classList.contains('toast-out')) { t.classList.replace('toast-in', 'toast-out'); setTimeout(() => t.remove(), 300); } }, 6000);
+    setTimeout(() => { if (!t.classList.contains('toast-out')) { t.classList.replace('toast-in','toast-out'); setTimeout(()=>t.remove(),300); } }, 6000);
 }
 
-/* ─── HTML 轉義（防 XSS）────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   HTML 轉義（防止 XSS）
+   ════════════════════════════════════════════════════════════ */
 function escapeHtml(str) {
     if (!str) return '';
     return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 
-/* ─── Modal：延遲原因 ────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：延遲原因（護理端右鍵 / 長按）
+   ════════════════════════════════════════════════════════════ */
 function openReasonModal(bed) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = `⏳ ${bed.id} 延遲原因`;
@@ -980,18 +1068,18 @@ function openReasonModal(bed) {
     showModal();
 }
 
-/* ─── Modal：床位編輯（控制+編輯模式）─────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：床位管理（控制端編輯模式點擊床卡）
+   功能：移動到分組 / 刪除床號
+   ════════════════════════════════════════════════════════════ */
 function openBedEditModal(bed) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = `🛏️ 床號 ${bed.id}`;
     content.innerHTML = '';
-
-    // 移動到分組
     const label = document.createElement('p');
     label.className = 'text-xs font-bold text-gray-400 mb-2 px-1 uppercase tracking-wider';
     label.textContent = '移動到分組';
     content.appendChild(label);
-
     getSortedGroups().forEach(group => {
         const isCurrent = (bed.groupId || 'default') === group.id;
         const btn = document.createElement('button');
@@ -1001,12 +1089,9 @@ function openBedEditModal(bed) {
         if (!isCurrent) btn.addEventListener('click', () => { dbUpdate({ [`/beds/${bed.id}/groupId`]: group.id }); closeModal(); });
         content.appendChild(btn);
     });
-
-    // 刪除（無狀態才可刪）
     const sep = document.createElement('div');
     sep.className = 'border-t my-3';
     content.appendChild(sep);
-
     const isActive = bed.preDischarge || bed.readyForBilling || bed.billed || bed.delayed;
     if (!isActive) {
         const delBtn = document.createElement('button');
@@ -1023,7 +1108,9 @@ function openBedEditModal(bed) {
     showModal();
 }
 
-/* ─── Modal：確認操作 ────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：確認操作（通用 confirm）
+   ════════════════════════════════════════════════════════════ */
 function openConfirmModal(message, onConfirm) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = '確認操作';
@@ -1038,28 +1125,25 @@ function openConfirmModal(message, onConfirm) {
     showModal();
 }
 
-/* ─── Modal：管理分組 ────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：管理分組（新增 / 排序 / 改名 / 刪除）
+   ════════════════════════════════════════════════════════════ */
 function openGroupConfig() {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = '🏷️ 管理分組';
     content.innerHTML = '';
-
-    /* 新增分組 */
     const addRow = document.createElement('div');
     addRow.className = 'flex gap-2 mb-3 pb-3 border-b';
     addRow.innerHTML = `
         <input id="new-group-name" class="border p-2 rounded-xl flex-grow text-sm focus:ring-2 focus:ring-purple-400 outline-none" placeholder="新分組名稱（如：A病房）">
         <button id="btn-add-group" class="bg-purple-500 text-white px-3 py-2 rounded-xl font-bold text-sm whitespace-nowrap hover:bg-purple-600 transition">新增</button>`;
     content.appendChild(addRow);
-
-    /* 分組清單 */
     const sortedGroups = getSortedGroups();
     const listDiv = document.createElement('div');
     listDiv.className = 'space-y-1.5';
-
     sortedGroups.forEach((group, idx) => {
         const count = getBedsForGroup(group.id).length;
-        const row   = document.createElement('div');
+        const row = document.createElement('div');
         row.className = 'flex items-center gap-2 bg-gray-50 p-2.5 rounded-xl border';
         row.innerHTML = `
             <div class="flex-1 min-w-0">
@@ -1082,36 +1166,21 @@ function openGroupConfig() {
         listDiv.appendChild(row);
     });
     content.appendChild(listDiv);
-
-    /* 事件 */
     document.getElementById('btn-add-group').addEventListener('click', () => {
         const input = document.getElementById('new-group-name');
-        const name  = input.value.trim();
+        const name = input.value.trim();
         if (!name) return;
         const maxIdx = sortedGroups.length > 0 ? Math.max(...sortedGroups.map(g => g.index ?? 0)) : 0;
         set(ref(db, `groups/grp_${Date.now()}`), { name, index: maxIdx + 1 });
         closeModal();
     });
-
     listDiv.querySelectorAll('[data-up]').forEach(btn => btn.addEventListener('click', () => {
         const idx = sortedGroups.findIndex(g => g.id === btn.dataset.up);
-        if (idx > 0) {
-            dbUpdate({
-                [`/groups/${sortedGroups[idx].id}/index`]:     sortedGroups[idx-1].index,
-                [`/groups/${sortedGroups[idx-1].id}/index`]:   sortedGroups[idx].index,
-            });
-            closeModal();
-        }
+        if (idx > 0) { dbUpdate({ [`/groups/${sortedGroups[idx].id}/index`]: sortedGroups[idx-1].index, [`/groups/${sortedGroups[idx-1].id}/index`]: sortedGroups[idx].index }); closeModal(); }
     }));
     listDiv.querySelectorAll('[data-down]').forEach(btn => btn.addEventListener('click', () => {
         const idx = sortedGroups.findIndex(g => g.id === btn.dataset.down);
-        if (idx < sortedGroups.length - 1) {
-            dbUpdate({
-                [`/groups/${sortedGroups[idx].id}/index`]:     sortedGroups[idx+1].index,
-                [`/groups/${sortedGroups[idx+1].id}/index`]:   sortedGroups[idx].index,
-            });
-            closeModal();
-        }
+        if (idx < sortedGroups.length - 1) { dbUpdate({ [`/groups/${sortedGroups[idx].id}/index`]: sortedGroups[idx+1].index, [`/groups/${sortedGroups[idx+1].id}/index`]: sortedGroups[idx].index }); closeModal(); }
     }));
     listDiv.querySelectorAll('[data-rename-g]').forEach(btn => btn.addEventListener('click', () => {
         openRenameGroupModal(btn.dataset.renameG, btn.dataset.name);
@@ -1119,11 +1188,12 @@ function openGroupConfig() {
     listDiv.querySelectorAll('[data-del-g]').forEach(btn => btn.addEventListener('click', () => {
         confirmDeleteGroup({ id: btn.dataset.delG, ...groups[btn.dataset.delG] });
     }));
-
     showModal();
 }
 
-/* ─── Modal：改名分組 ────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：改名分組
+   ════════════════════════════════════════════════════════════ */
 function openRenameGroupModal(id, oldName) {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = '✏️ 重新命名分組';
@@ -1135,32 +1205,29 @@ function openRenameGroupModal(id, oldName) {
         </div>`;
     const inp = content.querySelector('#rename-input');
     inp.focus(); inp.select();
-    const confirm = () => {
-        const n = inp.value.trim();
-        if (n) update(ref(db, `groups/${id}`), { name: n });
-        closeModal();
-    };
+    const confirm = () => { const n = inp.value.trim(); if (n) update(ref(db, `groups/${id}`), { name: n }); closeModal(); };
     content.querySelector('#rn-ok').addEventListener('click', confirm);
     content.querySelector('#rn-cancel').addEventListener('click', closeModal);
     inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') confirm(); });
     showModal();
 }
 
-/* ─── 刪除分組確認 ───────────────────────────────────────── */
+// 刪除分組確認（床號自動移至未分組）
 function confirmDeleteGroup(group) {
     const count = getBedsForGroup(group.id).length;
     openConfirmModal(
         `刪除分組「${group.name}」？<br><span class="text-xs text-gray-400">${count > 0 ? `${count} 個床號將移至「未分組」` : '此分組無床號'}</span>`,
         () => {
             const updates = { [`/groups/${group.id}`]: null };
-            localBedList.filter(b => b.groupId === group.id)
-                        .forEach(b => { updates[`/beds/${b.id}/groupId`] = 'default'; });
+            localBedList.filter(b => b.groupId === group.id).forEach(b => { updates[`/beds/${b.id}/groupId`] = 'default'; });
             dbUpdate(updates);
         }
     );
 }
 
-/* ─── Modal：原因設定 ────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal：延遲原因設定（控制端）
+   ════════════════════════════════════════════════════════════ */
 function openReasonConfig() {
     const content = document.getElementById('modal-content');
     document.getElementById('modal-title').textContent = '📝 編輯延遲原因';
@@ -1171,7 +1238,7 @@ function openReasonConfig() {
         </div>`;
     const listDiv = document.createElement('div');
     listDiv.className = 'space-y-1.5';
-    const render = () => {
+    const renderReasonList = () => {
         listDiv.innerHTML = '';
         reasonList.forEach((r, i) => {
             const row = document.createElement('div');
@@ -1181,13 +1248,13 @@ function openReasonConfig() {
             del.className = 'text-xs px-2.5 py-1 bg-red-50 text-red-500 rounded-lg hover:bg-red-100 font-bold';
             del.textContent = '刪除';
             del.addEventListener('click', () => openConfirmModal('確定刪除此原因？', () => {
-                set(ref(db, 'reasons'), reasonList.filter((_, j) => j !== i));
+                set(ref(db, 'reasons'), reasonList.filter((_,j) => j !== i));
             }));
             row.appendChild(del);
             listDiv.appendChild(row);
         });
     };
-    render();
+    renderReasonList();
     content.appendChild(listDiv);
     document.getElementById('btn-add-reason').addEventListener('click', () => {
         const inp = document.getElementById('new-reason-input');
@@ -1197,7 +1264,9 @@ function openReasonConfig() {
     showModal();
 }
 
-/* ─── Modal 工具 ─────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   Modal 工具函式
+   ════════════════════════════════════════════════════════════ */
 function showModal() {
     const m = document.getElementById('modal-container');
     m.classList.remove('hidden'); m.classList.add('flex');
@@ -1207,7 +1276,9 @@ function closeModal() {
     m.classList.add('hidden'); m.classList.remove('flex');
 }
 
-/* ─── 分組篩選 Tabs ──────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   分組篩選 Tab 列（兩個以上分組才顯示）
+   ════════════════════════════════════════════════════════════ */
 function updateGroupFilterBar(sortedGroups) {
     const bar = document.getElementById('group-filter-bar');
     if (sortedGroups.length <= 1) { bar.classList.add('hidden'); return; }
@@ -1221,12 +1292,12 @@ function updateGroupFilterBar(sortedGroups) {
         return t;
     };
     bar.appendChild(makeTab('全部', 'all'));
-    sortedGroups.forEach(g => {
-        bar.appendChild(makeTab(`${g.name} (${getBedsForGroup(g.id).length})`, g.id));
-    });
+    sortedGroups.forEach(g => bar.appendChild(makeTab(`${g.name} (${getBedsForGroup(g.id).length})`, g.id)));
 }
 
-/* ─── 床位管理 ───────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   床位管理（新增 / 清除）
+   ════════════════════════════════════════════════════════════ */
 function addBed() {
     const idInp  = document.getElementById('new-bed-id');
     const grpSel = document.getElementById('new-bed-group');
@@ -1241,6 +1312,7 @@ function addBed() {
     idInp.focus();
 }
 
+// 同步分組下拉選單選項
 function updateGroupSelectOptions() {
     const sel = document.getElementById('new-bed-group');
     if (!sel) return;
@@ -1254,6 +1326,7 @@ function updateGroupSelectOptions() {
     });
 }
 
+// 清除所有床位狀態
 function clearAllStatuses() {
     openConfirmModal('確定要清除「所有」狀態？', () => {
         const updates = {};
@@ -1269,7 +1342,9 @@ function clearAllStatuses() {
     });
 }
 
-/* ─── 角色切換 ───────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   角色切換
+   ════════════════════════════════════════════════════════════ */
 function setRole(role) {
     currentRole = role;
     const map = {
@@ -1286,13 +1361,13 @@ function setRole(role) {
     const badge = document.getElementById('role-badge');
     badge.textContent = map[role].label;
     badge.className   = `text-xs px-2.5 py-1 rounded-lg font-bold ${map[role].badge}`;
-
     document.getElementById('admin-panel').classList.toggle('hidden',   role !== 'control');
     document.getElementById('nursing-panel').classList.toggle('hidden', role !== 'nursing');
     document.getElementById('clerk-panel').classList.toggle('hidden',   role !== 'clerk');
     renderGrid();
 }
 
+// 切換編輯模式（控制端）
 function toggleEditMode() {
     isEditMode = !isEditMode;
     const btn   = document.getElementById('btn-edit-mode');
@@ -1312,6 +1387,7 @@ function toggleEditMode() {
     renderGrid();
 }
 
+// 切換通知開關
 function toggleNotify() {
     isNotifyEnabled = !isNotifyEnabled;
     const btn = document.getElementById('btn-notify-toggle');
@@ -1325,6 +1401,7 @@ function toggleNotify() {
     }
 }
 
+// 依狀態取得對應 CSS class
 function getStatusClass(bed) {
     if (bed.billed)          return 'status-billed';
     if (bed.delayed)         return 'status-delayed';
@@ -1333,7 +1410,10 @@ function getStatusClass(bed) {
     return 'status-normal';
 }
 
-/* ─── 事件綁定 ───────────────────────────────────────────── */
+/* ════════════════════════════════════════════════════════════
+   DOMContentLoaded：綁定所有按鈕事件，依 URL 參數初始化角色
+   URL 參數：?v=2 → 護理端；?v=3 → 書記端；預設 → 控制端
+   ════════════════════════════════════════════════════════════ */
 document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('btn-control').addEventListener('click', () => setRole('control'));
     document.getElementById('btn-nursing').addEventListener('click', () => setRole('nursing'));
@@ -1347,13 +1427,9 @@ document.addEventListener('DOMContentLoaded', () => {
     document.getElementById('modal-close-btn').addEventListener('click', closeModal);
     document.getElementById('new-bed-id').addEventListener('keydown', (e) => { if (e.key === 'Enter') addBed(); });
     document.addEventListener('visibilitychange', () => { if (!document.hidden) stopTitleFlash(); });
-
-    // 點擊 Modal 遮罩關閉
     document.getElementById('modal-container').addEventListener('click', (e) => {
         if (e.target === e.currentTarget) closeModal();
     });
-
-    // URL 參數決定初始角色
     const v = new URLSearchParams(window.location.search).get('v');
     if      (v === '2') setRole('nursing');
     else if (v === '3') setRole('clerk');
