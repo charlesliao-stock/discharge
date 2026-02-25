@@ -24,6 +24,7 @@
             transition: transform 0.12s ease, box-shadow 0.12s ease;
             cursor: pointer; touch-action: none;
             box-sizing: border-box;
+            position: relative;   /* 讓 .msg-badge 定位在卡片右上角 */
         }
         .bed-card:active { transform: scale(0.94); }
         .bed-card.edit-mode-card {
@@ -298,8 +299,7 @@ function createMsgBadge(bedId, count) {
     badge.dataset.badge = 'true';
     badge.addEventListener('click', (e) => {
         e.stopPropagation();
-        if (currentRole === 'nursing' || currentRole === 'clerk') openMessageListModal(bedId);
-        else if (currentRole === 'control') openMessageListModal(bedId);
+        openMessageListModal(bedId);
     });
     return badge;
 }
