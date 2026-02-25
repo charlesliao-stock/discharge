@@ -815,6 +815,9 @@ function renderMessageListModal(bedId) {
             const item = document.createElement('div');
             item.className = `msg-item ${isUnread ? 'msg-unread' : 'msg-read'} bg-white rounded-xl border p-3`;
 
+            // 控制端 + 護理端 具備編輯權限
+            const canEdit = (currentRole === 'control' || currentRole === 'nursing');
+
             item.innerHTML = `
                 <div class="flex items-start justify-between gap-2">
                     <div class="flex-1 min-w-0">
@@ -822,8 +825,12 @@ function renderMessageListModal(bedId) {
                         <div class="msg-text text-sm leading-snug break-words">${escapeHtml(msg.text)}</div>
                         ${msg.note ? `<div class="msg-note-label mt-1.5">📌 ${escapeHtml(msg.note)}</div>` : ''}
                     </div>
-                    ${currentRole === 'control' ? `
+                    ${canEdit ? `
                     <div class="flex flex-col gap-1 shrink-0">
+                        <button data-action="edit"   data-id="${msgId}" data-bed="${bedId}"
+                            class="text-[10px] px-2 py-1 bg-blue-50 text-blue-600 rounded-lg border border-blue-200 hover:bg-blue-100 font-bold whitespace-nowrap">
+                            ✏️ 編輯
+                        </button>
                         <button data-action="note"   data-id="${msgId}" data-bed="${bedId}"
                             class="text-[10px] px-2 py-1 bg-yellow-50 text-yellow-600 rounded-lg border border-yellow-200 hover:bg-yellow-100 font-bold whitespace-nowrap">
                             📌 備註
@@ -839,10 +846,19 @@ function renderMessageListModal(bedId) {
         content.appendChild(list);
 
         // 操作事件
+        content.querySelectorAll('[data-action="edit"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                openMsgEditModal(btn.dataset.bed, btn.dataset.id,
+                    msgs[btn.dataset.id]?.text || '');
+            });
+        });
         content.querySelectorAll('[data-action="delete"]').forEach(btn => {
             btn.addEventListener('click', () => {
                 openConfirmModal('確定刪除此則留言？', () => {
                     remove(ref(db, `messages/${btn.dataset.bed}/${btn.dataset.id}`));
+                    // 同步移除本地快取
+                    if (localMessages[btn.dataset.bed]) delete localMessages[btn.dataset.bed][btn.dataset.id];
+                    refreshAllBadges();
                     renderMessageListModal(btn.dataset.bed);
                 });
             });
@@ -855,8 +871,8 @@ function renderMessageListModal(bedId) {
         });
     }
 
-    /* 控制端底部新增按鈕 */
-    if (currentRole === 'control') {
+    /* 控制端 + 護理端 底部新增按鈕 */
+    if (currentRole === 'control' || currentRole === 'nursing') {
         const addBtn = document.createElement('button');
         addBtn.className = 'w-full mt-3 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-200 font-bold hover:bg-indigo-100 transition text-sm';
         addBtn.textContent = '＋ 新增留言';
@@ -865,6 +881,36 @@ function renderMessageListModal(bedId) {
     }
 
     showModal();
+}
+
+/* ─── Modal：編輯留言內文 ────────────────────────────────── */
+function openMsgEditModal(bedId, msgId, currentText) {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').textContent = '✏️ 編輯留言';
+    content.innerHTML = `
+        <textarea id="edit-msg-input"
+            class="w-full border rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-blue-400 outline-none"
+            rows="4">${escapeHtml(currentText)}</textarea>
+        <div class="flex gap-2 mt-2">
+            <button id="edit-msg-ok"     class="flex-1 py-2.5 bg-blue-600 text-white rounded-xl font-bold hover:bg-blue-700 transition text-sm">✓ 儲存</button>
+            <button id="edit-msg-cancel" class="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition text-sm">取消</button>
+        </div>`;
+    const inp = document.getElementById('edit-msg-input');
+    setTimeout(() => { inp.focus(); inp.select(); }, 80);
+    document.getElementById('edit-msg-ok').addEventListener('click', () => {
+        const newText = inp.value.trim();
+        if (newText) {
+            dbUpdate({ [`/messages/${bedId}/${msgId}/text`]: newText });
+            // 同步本地快取
+            if (localMessages[bedId]?.[msgId]) localMessages[bedId][msgId].text = newText;
+        }
+        closeModal();
+        setTimeout(() => openMessageListModal(bedId), 150);
+    });
+    document.getElementById('edit-msg-cancel').addEventListener('click', () => {
+        closeModal();
+        setTimeout(() => openMessageListModal(bedId), 150);
+    });
 }
 
 /* ─── Modal：備註編輯 ────────────────────────────────────── */
