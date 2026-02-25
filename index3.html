@@ -89,6 +89,37 @@
             border-color: #4338ca !important;
             box-shadow: 0 2px 8px rgba(79,70,229,.35);
         }
+
+        /* ── 留言徽章 ── */
+        @keyframes bounceBadge {
+            0%,100% { transform: translateY(0) scale(1); }
+            30%     { transform: translateY(-4px) scale(1.15); }
+            60%     { transform: translateY(-2px) scale(1.05); }
+        }
+        .msg-badge {
+            position: absolute; top: -8px; right: -8px;
+            min-width: 20px; height: 20px; padding: 0 4px;
+            background: #ef4444; color: #fff;
+            font-size: 10px; font-weight: 900;
+            border-radius: 9999px;
+            display: flex; align-items: center; justify-content: center;
+            border: 2px solid #fff;
+            box-shadow: 0 2px 6px rgba(239,68,68,.5);
+            animation: bounceBadge 1.2s ease infinite;
+            cursor: pointer; z-index: 10;
+        }
+        .msg-badge:hover { background: #dc2626; transform: scale(1.2); animation: none; }
+
+        /* ── 留言列表 ── */
+        .msg-item { transition: background .15s; }
+        .msg-item:hover { background: #f8fafc; }
+        .msg-unread .msg-text { font-weight: 900; color: #1e293b; }
+        .msg-read   .msg-text { font-weight: 400; color: #64748b; }
+        .msg-note-label {
+            font-size: 10px; background: #fef9c3; color: #854d0e;
+            border: 1px solid #fde68a; border-radius: 4px;
+            padding: 1px 5px; display: inline-block; margin-top: 2px;
+        }
     </style>
 </head>
 <body class="bg-slate-100 p-2 sm:p-4 min-h-screen">
@@ -98,9 +129,9 @@
 
 <!-- ── Modal ── -->
 <div id="modal-container" class="fixed inset-0 z-[100] hidden items-center justify-center modal-overlay">
-    <div class="bg-white rounded-2xl shadow-2xl w-11/12 max-w-sm p-5 transform transition-all">
+    <div class="bg-white rounded-2xl shadow-2xl w-11/12 max-w-md p-5 transform transition-all">
         <h3 id="modal-title" class="text-base font-black text-gray-800 mb-3 text-center border-b pb-2 tracking-wide">選單</h3>
-        <div id="modal-content" class="space-y-1.5 max-h-[60vh] overflow-y-auto pr-1"></div>
+        <div id="modal-content" class="space-y-1.5 max-h-[65vh] overflow-y-auto pr-1"></div>
         <div class="mt-4 pt-3 border-t">
             <button id="modal-close-btn" class="w-full py-2.5 bg-gray-100 text-gray-500 rounded-xl font-bold hover:bg-gray-200 transition text-sm">關閉</button>
         </div>
@@ -188,7 +219,7 @@
 
 <script type="module">
 import { initializeApp }  from "https://www.gstatic.com/firebasejs/10.7.1/firebase-app.js";
-import { getDatabase, ref, set, onValue, remove, update }
+import { getDatabase, ref, set, onValue, remove, update, push }
     from "https://www.gstatic.com/firebasejs/10.7.1/firebase-database.js";
 
 /* ─── Firebase ─────────────────────────────────────────── */
@@ -217,11 +248,74 @@ let isEditMode         = false;
 let reasonList         = [];
 let groupsLoaded       = false;
 let bedsLoaded         = false;
+let localMessages      = {};       // { bedId: { msgId: { text, time, readByNursing, readByClerk, note } } }
+let msgSortDesc        = true;     // 留言排序：true = 新→舊
 const originalTitle    = document.title;
 const DEFAULT_REASONS  = ["等待家屬","等待檢查報告","帳務問題","病情變化","等待救護車","其他"];
 
 /* ─── DB 封裝 ──────────────────────────────────────────── */
 const dbUpdate = (updates) => update(ref(db), updates);
+
+/* ─── 留言輔助 ─────────────────────────────────────────── */
+// 取得某床的未讀數（nursing 或 clerk）
+function getUnreadCount(bedId, role) {
+    const msgs = localMessages[bedId];
+    if (!msgs) return 0;
+    return Object.values(msgs).filter(m => {
+        if (role === 'nursing') return !m.readByNursing;
+        if (role === 'clerk')   return !m.readByClerk;
+        return false;
+    }).length;
+}
+
+// 取得某床的總留言數（控制端顯示用）
+function getTotalMsgCount(bedId) {
+    const msgs = localMessages[bedId];
+    return msgs ? Object.keys(msgs).length : 0;
+}
+
+// 重繪所有床卡的徽章（避免全頁重繪）
+function refreshAllBadges() {
+    document.querySelectorAll('#bed-grid [data-id]').forEach(el => {
+        const bedId = el.dataset.id;
+        const existing = el.querySelector('.msg-badge');
+        const count = (currentRole === 'control')
+            ? getTotalMsgCount(bedId)
+            : getUnreadCount(bedId, currentRole);
+        if (count > 0) {
+            if (existing) { existing.textContent = count; }
+            else          { el.appendChild(createMsgBadge(bedId, count)); }
+        } else {
+            existing?.remove();
+        }
+    });
+}
+
+function createMsgBadge(bedId, count) {
+    const badge = document.createElement('div');
+    badge.className = 'msg-badge';
+    badge.textContent = count;
+    badge.dataset.badge = 'true';
+    badge.addEventListener('click', (e) => {
+        e.stopPropagation();
+        if (currentRole === 'nursing' || currentRole === 'clerk') openMessageListModal(bedId);
+        else if (currentRole === 'control') openMessageListModal(bedId);
+    });
+    return badge;
+}
+
+// 新留言通知
+function checkNewMsgNotify(newData) {
+    if (!isNotifyEnabled) return;
+    Object.keys(newData).forEach(bedId => {
+        const newCount = Object.keys(newData[bedId] || {}).length;
+        const oldCount = Object.keys(localMessages[bedId] || {}).length;
+        if (newCount > oldCount) {
+            const latest = Object.values(newData[bedId]).sort((a,b)=>b.time-a.time)[0];
+            showMsgToast(bedId, latest?.text || '');
+        }
+    });
+}
 
 /* ─── Firebase: groups ─────────────────────────────────── */
 onValue(ref(db, 'groups'), (snap) => {
@@ -270,6 +364,15 @@ onValue(ref(db, 'reasons'), (snap) => {
     const val = snap.val();
     reasonList = val || DEFAULT_REASONS;
     if (!val) set(ref(db, 'reasons'), DEFAULT_REASONS);
+});
+
+/* ─── Firebase: messages ───────────────────────────────── */
+onValue(ref(db, 'messages'), (snap) => {
+    const data = snap.val() || {};
+    checkNewMsgNotify(data);
+    localMessages = data;
+    // 只更新徽章，不重繪全部（效能優化）
+    refreshAllBadges();
 });
 
 /* ─── 輔助：排序 ───────────────────────────────────────── */
@@ -500,6 +603,13 @@ function createBedCard(bed) {
             }
         }
         div.innerHTML = inner;
+
+        // 留言徽章
+        const msgCount = (currentRole === 'control')
+            ? getTotalMsgCount(bed.id)
+            : getUnreadCount(bed.id, currentRole);
+        if (msgCount > 0) div.appendChild(createMsgBadge(bed.id, msgCount));
+
         attachBedEvents(div, bed);
     }
     return div;
@@ -523,7 +633,8 @@ function attachBedEvents(el, bed) {
     el.addEventListener('touchend',  (e) => { clearTimeout(timer); if (isLP) e.preventDefault(); });
     el.addEventListener('contextmenu',(e) => {
         e.preventDefault();
-        if (currentRole === 'nursing') openReasonModal(bed);
+        if      (currentRole === 'control') openNewMessageModal(bed.id);
+        else if (currentRole === 'nursing') openReasonModal(bed);
         else if (currentRole === 'clerk' && bed.preDischarge && !bed.readyForBilling && !bed.billed) toggleClerkNote(bed);
     });
     el.addEventListener('click', () => { if (!isLP) handleShortClick(bed); });
@@ -558,12 +669,214 @@ function handleShortClick(bed) {
 /* ─── 長按 ──────────────────────────────────────────────── */
 function handleLongPress(bed) {
     if (navigator.vibrate) navigator.vibrate(50);
-    if (currentRole === 'nursing') openReasonModal(bed);
+    if      (currentRole === 'control') openNewMessageModal(bed.id);
+    else if (currentRole === 'nursing') openReasonModal(bed);
     else if (currentRole === 'clerk' && bed.preDischarge && !bed.readyForBilling && !bed.billed) toggleClerkNote(bed);
 }
 
 function toggleClerkNote(bed) {
     dbUpdate({ [`/beds/${bed.id}/showClerkNote`]: !bed.showClerkNote });
+}
+
+/* ─── Modal：新增留言（控制端右鍵）────────────────────────── */
+function openNewMessageModal(bedId) {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').textContent = `💬 ${bedId} — 新增留言`;
+    content.innerHTML = `
+        <textarea id="msg-input"
+            class="w-full border rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-indigo-400 outline-none"
+            rows="4" placeholder="輸入留言內容⋯"></textarea>
+        <div class="flex gap-2 mt-2">
+            <button id="msg-submit"
+                class="flex-1 py-2.5 bg-indigo-600 text-white rounded-xl font-bold hover:bg-indigo-700 transition text-sm">
+                📨 送出
+            </button>
+            <button id="msg-view"
+                class="px-3 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition text-sm whitespace-nowrap">
+                📋 查看
+            </button>
+        </div>`;
+    showModal();
+    const inp = document.getElementById('msg-input');
+    setTimeout(() => inp.focus(), 80);
+    const submit = () => {
+        const text = inp.value.trim();
+        if (!text) return;
+        push(ref(db, `messages/${bedId}`), {
+            text,
+            time:           Date.now(),
+            readByNursing:  false,
+            readByClerk:    false,
+            note:           ''
+        });
+        closeModal();
+    };
+    document.getElementById('msg-submit').addEventListener('click', submit);
+    inp.addEventListener('keydown', (e) => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); submit(); } });
+    document.getElementById('msg-view').addEventListener('click', () => { closeModal(); openMessageListModal(bedId); });
+}
+
+/* ─── Modal：留言列表（護理/書記/控制端查看）──────────────── */
+function openMessageListModal(bedId) {
+    // 先標記全部已讀（護理/書記角色）
+    const msgs  = localMessages[bedId] || {};
+    const keys  = Object.keys(msgs);
+    if ((currentRole === 'nursing' || currentRole === 'clerk') && keys.length > 0) {
+        const readField = currentRole === 'nursing' ? 'readByNursing' : 'readByClerk';
+        const updates = {};
+        keys.forEach(k => { if (!msgs[k][readField]) updates[`/messages/${bedId}/${k}/${readField}`] = true; });
+        if (Object.keys(updates).length) dbUpdate(updates);
+    }
+
+    renderMessageListModal(bedId);
+}
+
+function renderMessageListModal(bedId) {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').textContent = `📋 ${bedId} 留言板`;
+    content.innerHTML = '';
+
+    const msgs   = localMessages[bedId] || {};
+    const sorted = Object.entries(msgs).sort(([,a],[,b]) =>
+        msgSortDesc ? b.time - a.time : a.time - b.time
+    );
+
+    /* 工具列 */
+    const toolbar = document.createElement('div');
+    toolbar.className = 'flex items-center justify-between mb-3 pb-2 border-b';
+    toolbar.innerHTML = `
+        <span class="text-xs font-bold text-gray-400">${sorted.length} 則留言</span>
+        <button id="msg-sort-btn"
+            class="text-xs px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg border hover:bg-slate-200 font-bold flex items-center gap-1">
+            ${msgSortDesc ? '⬇ 最新優先' : '⬆ 最舊優先'}
+        </button>`;
+    content.appendChild(toolbar);
+    document.getElementById('msg-sort-btn').addEventListener('click', () => {
+        msgSortDesc = !msgSortDesc;
+        renderMessageListModal(bedId);
+    });
+
+    /* 留言清單 */
+    if (sorted.length === 0) {
+        const empty = document.createElement('div');
+        empty.className = 'text-center text-gray-300 py-8 text-sm italic';
+        empty.textContent = '尚無留言';
+        content.appendChild(empty);
+    } else {
+        const list = document.createElement('div');
+        list.className = 'space-y-2';
+        sorted.forEach(([msgId, msg]) => {
+            const isUnread = currentRole === 'nursing' ? !msg.readByNursing
+                           : currentRole === 'clerk'   ? !msg.readByClerk
+                           : false; // 控制端不分已讀
+
+            const timeStr  = new Date(msg.time).toLocaleString('zh-TW', {
+                month:'2-digit', day:'2-digit',
+                hour:'2-digit',  minute:'2-digit'
+            });
+
+            const item = document.createElement('div');
+            item.className = `msg-item ${isUnread ? 'msg-unread' : 'msg-read'} bg-white rounded-xl border p-3`;
+
+            item.innerHTML = `
+                <div class="flex items-start justify-between gap-2">
+                    <div class="flex-1 min-w-0">
+                        <div class="text-[10px] text-slate-400 mb-1 font-mono">${timeStr}</div>
+                        <div class="msg-text text-sm leading-snug break-words">${escapeHtml(msg.text)}</div>
+                        ${msg.note ? `<div class="msg-note-label mt-1.5">📌 ${escapeHtml(msg.note)}</div>` : ''}
+                    </div>
+                    ${currentRole === 'control' ? `
+                    <div class="flex flex-col gap-1 shrink-0">
+                        <button data-action="note"   data-id="${msgId}" data-bed="${bedId}"
+                            class="text-[10px] px-2 py-1 bg-yellow-50 text-yellow-600 rounded-lg border border-yellow-200 hover:bg-yellow-100 font-bold whitespace-nowrap">
+                            📌 備註
+                        </button>
+                        <button data-action="delete" data-id="${msgId}" data-bed="${bedId}"
+                            class="text-[10px] px-2 py-1 bg-red-50 text-red-500 rounded-lg border border-red-200 hover:bg-red-100 font-bold">
+                            🗑️ 刪除
+                        </button>
+                    </div>` : ''}
+                </div>`;
+            list.appendChild(item);
+        });
+        content.appendChild(list);
+
+        // 操作事件
+        content.querySelectorAll('[data-action="delete"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                openConfirmModal('確定刪除此則留言？', () => {
+                    remove(ref(db, `messages/${btn.dataset.bed}/${btn.dataset.id}`));
+                    renderMessageListModal(btn.dataset.bed);
+                });
+            });
+        });
+        content.querySelectorAll('[data-action="note"]').forEach(btn => {
+            btn.addEventListener('click', () => {
+                openNoteEditModal(btn.dataset.bed, btn.dataset.id,
+                    msgs[btn.dataset.id]?.note || '');
+            });
+        });
+    }
+
+    /* 控制端底部新增按鈕 */
+    if (currentRole === 'control') {
+        const addBtn = document.createElement('button');
+        addBtn.className = 'w-full mt-3 py-2.5 bg-indigo-50 text-indigo-600 rounded-xl border border-indigo-200 font-bold hover:bg-indigo-100 transition text-sm';
+        addBtn.textContent = '＋ 新增留言';
+        addBtn.addEventListener('click', () => { closeModal(); openNewMessageModal(bedId); });
+        content.appendChild(addBtn);
+    }
+
+    showModal();
+}
+
+/* ─── Modal：備註編輯 ────────────────────────────────────── */
+function openNoteEditModal(bedId, msgId, currentNote) {
+    const content = document.getElementById('modal-content');
+    document.getElementById('modal-title').textContent = '📌 編輯備註';
+    content.innerHTML = `
+        <textarea id="note-input"
+            class="w-full border rounded-xl p-3 text-sm resize-none focus:ring-2 focus:ring-yellow-400 outline-none"
+            rows="3" placeholder="輸入備註（留空可清除）⋯">${escapeHtml(currentNote)}</textarea>
+        <div class="flex gap-2 mt-2">
+            <button id="note-ok"     class="flex-1 py-2.5 bg-yellow-500 text-white rounded-xl font-bold hover:bg-yellow-600 transition text-sm">✓ 儲存</button>
+            <button id="note-cancel" class="flex-1 py-2.5 bg-gray-100 text-gray-600 rounded-xl font-bold hover:bg-gray-200 transition text-sm">取消</button>
+        </div>`;
+    const inp = document.getElementById('note-input');
+    setTimeout(() => { inp.focus(); inp.select(); }, 80);
+    document.getElementById('note-ok').addEventListener('click', () => {
+        dbUpdate({ [`/messages/${bedId}/${msgId}/note`]: inp.value.trim() });
+        closeModal();
+        setTimeout(() => openMessageListModal(bedId), 150);
+    });
+    document.getElementById('note-cancel').addEventListener('click', () => {
+        closeModal();
+        setTimeout(() => openMessageListModal(bedId), 150);
+    });
+    // 不呼叫 showModal()，因為 modal 已經開著
+}
+
+/* ─── 留言 Toast ─────────────────────────────────────────── */
+function showMsgToast(bedId, text) {
+    const c = document.getElementById('toast-container');
+    const t = document.createElement('div');
+    t.className = 'toast-in bg-indigo-700 text-white px-4 py-3 rounded-xl shadow-2xl flex items-center gap-3 border border-indigo-400 w-full pointer-events-auto cursor-pointer';
+    t.innerHTML = `
+        <span class="text-xl">💬</span>
+        <div class="flex-1 min-w-0">
+            <div class="text-[10px] opacity-75">新留言 · ${bedId}</div>
+            <div class="text-sm font-bold truncate">${escapeHtml(text)}</div>
+        </div>
+        <div class="text-lg opacity-50">✕</div>`;
+    t.addEventListener('click', () => { t.classList.replace('toast-in', 'toast-out'); setTimeout(() => t.remove(), 300); });
+    c.appendChild(t);
+    setTimeout(() => { if (!t.classList.contains('toast-out')) { t.classList.replace('toast-in', 'toast-out'); setTimeout(() => t.remove(), 300); } }, 6000);
+}
+
+/* ─── HTML 轉義（防 XSS）────────────────────────────────── */
+function escapeHtml(str) {
+    if (!str) return '';
+    return str.replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;').replace(/'/g,'&#039;');
 }
 
 /* ─── Modal：延遲原因 ────────────────────────────────────── */
