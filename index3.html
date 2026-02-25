@@ -5,6 +5,7 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>病房出院即時看板</title>
     <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.2/Sortable.min.js"></script>
     <style>
         @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
         
@@ -31,6 +32,28 @@
             cursor: pointer;
         }
         .bed-card.edit-mode-card:hover { opacity: 1; transform: scale(1.04); }
+
+        /* ── 拖拉 ── */
+        .bed-card.draggable { cursor: grab; }
+        .bed-card.draggable:active { cursor: grabbing; }
+        .sortable-ghost {
+            opacity: 0.15 !important;
+            background: #c7d2fe !important;
+            border: 2px dashed #6366f1 !important;
+            border-radius: 0.75rem;
+        }
+        .sortable-drag-class {
+            opacity: 1 !important;
+            box-shadow: 0 16px 40px -8px rgba(79,70,229,.45) !important;
+            transform: scale(1.08) rotate(1.5deg) !important;
+            z-index: 9999 !important;
+            cursor: grabbing !important;
+        }
+        .group-drop-active {
+            background: #eef2ff !important;
+            box-shadow: 0 0 0 2px #6366f1 inset;
+            border-radius: 0 0 0.75rem 0.75rem;
+        }
 
         /* ── 分組 ── */
         .group-section { animation: fadeInUp 0.2s ease both; }
@@ -389,6 +412,7 @@ function renderGrid() {
         /* 床卡 Grid */
         const grid = document.createElement('div');
         grid.className = 'grid grid-cols-3 sm:grid-cols-4 md:grid-cols-6 lg:grid-cols-8 gap-2 bg-white rounded-b-xl border border-t-0 border-gray-200 p-2 min-h-[76px]';
+        grid.dataset.groupId = group.id;   // ← 供 Sortable onEnd 識別目標分組
 
         if (beds.length === 0) {
             const empty = document.createElement('div');
@@ -405,6 +429,46 @@ function renderGrid() {
 
     container.appendChild(frag);
     updateGroupFilterBar(sortedGroups);
+    if (currentRole === 'control' && isEditMode) initSortables();
+}
+
+/* ─── 跨分組 Sortable ───────────────────────────────────── */
+let _sortableInstances = [];
+
+function initSortables() {
+    // 清除舊 instance
+    _sortableInstances.forEach(s => s.destroy());
+    _sortableInstances = [];
+
+    document.querySelectorAll('#bed-grid [data-group-id]').forEach(gridEl => {
+        const inst = new Sortable(gridEl, {
+            group:          { name: 'beds', pull: true, put: true },
+            animation:      200,
+            forceFallback:  true,
+            fallbackOnBody: true,
+            ghostClass:     'sortable-ghost',
+            dragClass:      'sortable-drag-class',
+            delay:          80,
+            delayOnTouchOnly: true,
+            // 拖入/拖出時高亮目標容器
+            onEnter: (evt) => evt.to.classList.add('group-drop-active'),
+            onLeave: (evt) => evt.from.classList.remove('group-drop-active'),
+            onEnd: (evt) => {
+                evt.to.classList.remove('group-drop-active');
+                evt.from.classList.remove('group-drop-active');
+
+                const bedId      = evt.item.dataset.id;
+                const newGroupId = evt.to.dataset.groupId;
+                const oldGroupId = evt.from.dataset.groupId;
+
+                if (!bedId || newGroupId === oldGroupId) return;
+
+                // 寫入 Firebase，onValue 觸發後會自動重排床號
+                dbUpdate({ [`/beds/${bedId}/groupId`]: newGroupId });
+            }
+        });
+        _sortableInstances.push(inst);
+    });
 }
 
 /* ─── 建立床卡 ──────────────────────────────────────────── */
@@ -416,7 +480,10 @@ function createBedCard(bed) {
     div.className = `bed-card flex flex-col items-center justify-center rounded-xl shadow-sm min-h-[5rem] sm:min-h-[6rem] ${getStatusClass(bed)}${isActive ? ' shadow-md' : ''}${editClass}`;
 
     if (currentRole === 'control' && isEditMode) {
-        div.innerHTML = `<span class="text-xl sm:text-2xl font-black pointer-events-none">${bed.id}</span><span class="text-[9px] text-gray-400 mt-0.5 pointer-events-none">點擊管理</span>`;
+        div.classList.add('draggable');
+        div.innerHTML = `
+            <span class="text-xl sm:text-2xl font-black pointer-events-none">${bed.id}</span>
+            <span class="text-[9px] text-indigo-300 mt-0.5 pointer-events-none">⠿ 拖拉換組</span>`;
         div.addEventListener('click', () => openBedEditModal(bed));
     } else {
         let inner = `<span class="text-xl sm:text-2xl font-black pointer-events-none">${bed.id}</span>`;
@@ -843,6 +910,8 @@ function toggleEditMode() {
         btn.innerHTML = '🔒 鎖定中';
         btn.className = 'shrink-0 bg-gray-500 text-white px-3 py-1.5 rounded-lg font-bold shadow text-xs hover:bg-gray-600 transition whitespace-nowrap';
         tools.classList.add('hidden');
+        _sortableInstances.forEach(s => s.destroy());
+        _sortableInstances = [];
     }
     renderGrid();
 }
