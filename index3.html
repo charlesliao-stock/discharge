@@ -384,8 +384,18 @@ onValue(ref(db, 'reasons'), (snap) => {
 onValue(ref(db, 'messages'), (snap) => {
     const data = snap.val() || {};
     checkNewMsgNotify(data);
+
+    // ★ 合併時保留已在本地標記為 true 的已讀旗標
+    // （避免伺服器快照覆蓋我們剛寫入的 readByNursing/readByClerk）
+    Object.keys(data).forEach(bedId => {
+        Object.keys(data[bedId] || {}).forEach(msgId => {
+            const local = localMessages?.[bedId]?.[msgId];
+            if (local?.readByNursing) data[bedId][msgId].readByNursing = true;
+            if (local?.readByClerk)   data[bedId][msgId].readByClerk   = true;
+        });
+    });
+
     localMessages = data;
-    // 只更新徽章，不重繪全部（效能優化）
     refreshAllBadges();
 });
 
