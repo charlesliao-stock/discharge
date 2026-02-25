@@ -734,14 +734,25 @@ function openNewMessageModal(bedId) {
 
 /* ─── Modal：留言列表（護理/書記/控制端查看）──────────────── */
 function openMessageListModal(bedId) {
-    // 先標記全部已讀（護理/書記角色）
     const msgs  = localMessages[bedId] || {};
     const keys  = Object.keys(msgs);
+
     if ((currentRole === 'nursing' || currentRole === 'clerk') && keys.length > 0) {
         const readField = currentRole === 'nursing' ? 'readByNursing' : 'readByClerk';
         const updates = {};
-        keys.forEach(k => { if (!msgs[k][readField]) updates[`/messages/${bedId}/${k}/${readField}`] = true; });
-        if (Object.keys(updates).length) dbUpdate(updates);
+        keys.forEach(k => {
+            if (!msgs[k][readField]) {
+                updates[`/messages/${bedId}/${k}/${readField}`] = true;
+                // ★ 立即同步本地快取，不等 onValue 回調
+                if (!localMessages[bedId]) localMessages[bedId] = {};
+                if (!localMessages[bedId][k]) localMessages[bedId][k] = {};
+                localMessages[bedId][k][readField] = true;
+            }
+        });
+        if (Object.keys(updates).length) {
+            dbUpdate(updates);
+            refreshAllBadges();   // ★ 立刻更新徽章顏色
+        }
     }
 
     renderMessageListModal(bedId);
